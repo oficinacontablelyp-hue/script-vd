@@ -361,9 +361,6 @@ Tab:CreateSection("Survivors")
 local Tab = Window:CreateTab("Graphics")
 Tab:CreateSection("Optimization")
 
-local Tab = Window:CreateTab("Graphics")
-Tab:CreateSection("Optimization")
-
 -- Sección Disable Visual Effects
 local disableEffectsEnabled = false
 local effectsStore = {}
