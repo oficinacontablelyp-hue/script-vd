@@ -244,7 +244,7 @@ Tab:CreateSlider({
     Increment = 0.1,
     Suffix = "",
     CurrentValue = 0.5,
-    Flag = "HighlightFillTrans",
+    Flag = "FillTrans",
     Callback = function(v) highlightFillTransparency = v end
 })
 
@@ -254,7 +254,7 @@ Tab:CreateSlider({
     Increment = 0.1,
     Suffix = "",
     CurrentValue = 0.0,
-    Flag = "HighlightOutlineTrans",
+    Flag = "OutlineTrans",
     Callback = function(v) highlightOutlineTransparency = v end
 })
 
@@ -413,7 +413,7 @@ Tab:CreateSlider({
     Increment = 0.1,
     Suffix = "",
     CurrentValue = 0.7,
-    Flag = "GenHighlightFillTrans",
+    Flag = "GenFillTrans",
     Callback = function(v) generatorHighlightFillTransparency = v end
 })
 
@@ -423,7 +423,7 @@ Tab:CreateSlider({
     Increment = 0.1,
     Suffix = "",
     CurrentValue = 0.2,
-    Flag = "GenHighlightOutlineTrans",
+    Flag = "GenOutlineTrans",
     Callback = function(v) generatorHighlightOutlineTransparency = v end
 })
 
@@ -448,94 +448,6 @@ Tab:CreateSection("Survivors")
 
 local Tab = Window:CreateTab("Graphics")
 Tab:CreateSection("Optimization")
-
--- Sección Simplify Materials
-local simplifyMaterialsEnabled = false
-local materialsStore = {}  -- Almacena el material original de cada parte
-local connections = {}  -- Para manejar eventos de partes nuevas
-
--- Función para guardar el estado de materiales (solo las partes existentes)
-local function saveMaterialsState()
-    materialsStore = {}
-    for _, part in ipairs(Workspace:GetDescendants()) do
-        if part:IsA("BasePart") then
-            materialsStore[part] = part.Material  -- Guarda solo el Material (sin tabla anidada para simplificar)
-            print("Guardado material de parte:", part.Name, "->", part.Material)
-        end
-    end
-end
-
--- Función para aplicar simplificación (cambiar a Plastic)
-local function applySimplifyMaterials()
-    for part, _ in pairs(materialsStore) do
-        if part and part.Parent then
-            pcall(function()
-                part.Material = Enum.Material.Plastic
-                print("Simplificado parte:", part.Name, "a Plastic")
-            end)
-        end
-    end
-end
-
--- Función para restaurar materiales originales
-local function restoreMaterialsState()
-    for part, originalMaterial in pairs(materialsStore) do
-        if part and part.Parent and originalMaterial then
-            pcall(function()
-                part.Material = originalMaterial
-                print("Restaurado parte:", part.Name, "a", originalMaterial)
-            end)
-        end
-    end
-end
-
--- Función para simplificar partes nuevas (si se añaden dinámicamente)
-local function onDescendantAdded(descendant)
-    if simplifyMaterialsEnabled and descendant:IsA("BasePart") then
-        materialsStore[descendant] = descendant.Material  -- Guarda el original
-        pcall(function()
-            descendant.Material = Enum.Material.Plastic
-            print("Nueva parte simplificada:", descendant.Name)
-        end)
-    end
-end
-
--- Función principal para activar/desactivar
-local function setSimplifyMaterials(state)
-    if state == simplifyMaterialsEnabled then return end  -- Evita acciones innecesarias
-    
-    if state then
-        simplifyMaterialsEnabled = true
-        saveMaterialsState()  -- Guarda estado inicial
-        applySimplifyMaterials()  -- Aplica simplificación
-        -- Conecta evento para partes nuevas
-        connections.DescendantAdded = Workspace.DescendantAdded:Connect(onDescendantAdded)
-        if Rayfield then
-            Rayfield:Notify({Title = "Simplify Materials", Content = "Enabled - Materials simplified for better performance", Duration = 4})
-        end
-        print("Simplify Materials habilitado")
-    else
-        simplifyMaterialsEnabled = false
-        restoreMaterialsState()  -- Restaura
-        -- Desconecta evento
-        if connections.DescendantAdded then
-            connections.DescendantAdded:Disconnect()
-            connections.DescendantAdded = nil
-        end
-        materialsStore = {}  -- Limpia la tabla
-        if Rayfield then
-            Rayfield:Notify({Title = "Simplify Materials", Content = "Disabled - Materials restored", Duration = 4})
-        end
-        print("Simplify Materials deshabilitado")
-    end
-end
-
-Tab:CreateToggle({
-    Name = "Simplify Materials",
-    CurrentValue = false,
-    Flag = "SimplifyMaterials",
-    Callback = function(s) setSimplifyMaterials(s) end
-})
 
 -- Sección No Fog
 local nfActive = false
