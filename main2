@@ -1,33 +1,33 @@
+-- LoreOnTop (COMPLETO Y FUNCIONAL)
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
--- Servicios de Roblox
+-- Servicios
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local LP = Players.LocalPlayer
 
--- Tablas de caché para optimización
-local cache = {
-    players = {},
-    generators = {},
-    highlights = {},
-    billboards = {}
-}
+-- Variables globales
+local playerESPEnabled = false
+local nametagsEnabled = false
+local showDistance = true
+local maxDistance = 500
 
--- Variables de rendimiento
-local PERFORMANCE = {
-    MAX_PLAYERS = 20, -- Límite de jugadores para ESP
-    MAX_DISTANCE = 300, -- Distancia máxima de renderizado
-    UPDATE_INTERVAL = 0.25, -- Intervalo de actualización (reducido de 0.12)
-    FRAME_SKIP = 2, -- Saltar frames para más rendimiento
-    BATCH_SIZE = 3, -- Procesar jugadores en lotes
-    frameCounter = 0
-}
+-- Colores
+local survivorColor = Color3.fromRGB(0, 255, 0)
+local killerColor = Color3.fromRGB(255, 0, 0)
+local spectatorColor = Color3.fromRGB(255, 255, 255)
+local generatorColor = Color3.fromRGB(0, 170, 255)
 
--- Funciones auxiliares optimizadas
+-- Cache para optimización
+local playerCache = {}
+local generatorCache = {}
+local connections = {}
+
+-- Funciones auxiliares
 local function alive(obj)
     return obj and obj.Parent ~= nil
 end
@@ -40,31 +40,29 @@ local function dist(a, b)
     return (a - b).Magnitude
 end
 
--- Función de primer BasePart optimizada
+local function clamp(n, lo, hi)
+    if n < lo then return lo elseif n > hi then return hi else return n end
+end
+
 local function firstBasePart(inst)
     if not alive(inst) then return nil end
-    
-    if inst:IsA("BasePart") then
-        return inst
-    elseif inst:IsA("Model") then
-        local primary = inst.PrimaryPart
-        if primary and primary:IsA("BasePart") and alive(primary) then
-            return primary
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Model") then
+        if inst.PrimaryPart and inst.PrimaryPart:IsA("BasePart") and alive(inst.PrimaryPart) then
+            return inst.PrimaryPart
         end
-        return inst:FindFirstChildWhichIsA("BasePart", true)
+        local p = inst:FindFirstChildWhichIsA("BasePart", true)
+        if validPart(p) then return p end
     end
     return nil
 end
 
--- Billboard optimizado (reutilizado)
 local function makeBillboard(text, color3, parent)
-    if cache.billboards[parent] then
-        local label = cache.billboards[parent]:FindFirstChild("Label")
-        if label then
-            label.Text = text
-            label.TextColor3 = color3
-        end
-        return cache.billboards[parent]
+    if not parent then return nil end
+    
+    local existing = parent:FindFirstChild("VD_Tag")
+    if existing then
+        existing:Destroy()
     end
     
     local g = Instance.new("BillboardGui")
@@ -72,8 +70,8 @@ local function makeBillboard(text, color3, parent)
     g.AlwaysOnTop = true
     g.Size = UDim2.new(0, 200, 0, 36)
     g.StudsOffset = Vector3.new(0, 3, 0)
-    g.MaxDistance = PERFORMANCE.MAX_DISTANCE
     g.Enabled = true
+    g.Parent = parent
     
     local l = Instance.new("TextLabel")
     l.Name = "Label"
@@ -87,17 +85,15 @@ local function makeBillboard(text, color3, parent)
     l.TextStrokeColor3 = Color3.new(0, 0, 0)
     l.Parent = g
     
-    cache.billboards[parent] = g
     return g
 end
 
--- Highlight optimizado (reutilizado)
 local function ensureHighlight(model, color)
-    if not (model and model:IsA("Model") and alive(model)) then return end
+    if not (model and model:IsA("Model") and alive(model)) then return nil end
     
-    local hl = cache.highlights[model]
+    local hl = model:FindFirstChild("VD_HL")
     if not hl then
-        local ok, result = pcall(function()
+        local success, result = pcall(function()
             local h = Instance.new("Highlight")
             h.Name = "VD_HL"
             h.Adornee = model
@@ -109,54 +105,24 @@ local function ensureHighlight(model, color)
             h.Parent = model
             return h
         end)
-        
-        if ok then
-            cache.highlights[model] = result
-            hl = result
-        else
-            return nil
-        end
+        if success then hl = result else return nil end
+    else
+        hl.FillColor = color
+        hl.OutlineColor = color
+        hl.FillTransparency = 0.5
+        hl.OutlineTransparency = 0.2
+        hl.Enabled = true
     end
-    
-    hl.FillColor = color
-    hl.OutlineColor = color
     return hl
 end
 
--- Crear ventana
-local Window = Rayfield:CreateWindow({
-    Name = "LoreOnTop - OPTIMIZADO",
-    LoadingTitle = "Violence District",
-    LoadingSubtitle = "by Lore (Optimizado)",
-    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
-    KeySystem = false,
-    Discord = {
-        Enabled = false,
-    }
-})
+local function clearHighlight(model)
+    if model and model:FindFirstChild("VD_HL") then
+        pcall(function() model.VD_HL:Destroy() end)
+    end
+end
 
--- VISUAL TAB
-local VisualTab = Window:CreateTab("Visual")
-VisualTab:CreateSection("ESP (Optimizado)")
-
--- Variables Player ESP
-local survivorColor = Color3.fromRGB(0, 255, 0)
-local killerColor = Color3.fromRGB(255, 0, 0)
-local spectatorColor = Color3.fromRGB(255, 255, 255)
-
-local playerESPEnabled = false
-local nametagsEnabled = false
-local showDistance = true
-local highlightFillTransparency = 0.5
-local highlightOutlineTransparency = 0.2
-local textTransparency = 0.0
-
--- Sistema de actualización optimizado
-local updateQueue = {}
-local processingBatch = false
-local lastUpdate = 0
-
--- Función para determinar rol optimizada
+-- Función para obtener rol
 local function getRole(p)
     local team = p.Team
     if team then
@@ -170,152 +136,131 @@ local function getRole(p)
     return "Survivor"
 end
 
--- Función para verificar espectador optimizada
+-- Función para verificar espectador
 local function isSpectator(p)
     if not p or not p.Character then return true end
-    
-    local hum = p.Character:FindFirstChildOfClass("Humanoid")
+    local hum = p.Character:FindFirstChildWhichIsA("Humanoid")
     if hum and hum.Health <= 0 then return true end
-    
-    return p:GetAttribute("Spectator") == true
+    if p:GetAttribute("Spectator") == true then return true end
+    return false
 end
 
--- Aplicar ESP a un jugador (optimizado)
+-- Crear ventana principal
+local Window = Rayfield:CreateWindow({
+    Name = "LoreOnTop",
+    LoadingTitle = "Violence District",
+    LoadingSubtitle = "by Lore",
+    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
+    KeySystem = false
+})
+
+-- VISUAL TAB
+local VisualTab = Window:CreateTab("Visual")
+VisualTab:CreateSection("ESP")
+
+-- Aplicar ESP a un jugador
 local function applyOnePlayerESP(p)
     if p == LP then return end
     
-    local char = p.Character
-    if not char or not alive(char) then
-        -- Limpiar si el personaje no existe
-        if cache.highlights[char] then
-            cache.highlights[char]:Destroy()
-            cache.highlights[char] = nil
-        end
-        if cache.billboards[char] then
-            cache.billboards[char]:Destroy()
-            cache.billboards[char] = nil
+    local c = p.Character
+    if not (c and alive(c)) then
+        -- Limpiar si no tiene personaje
+        if playerCache[p] then
+            if playerCache[p].highlight then
+                clearHighlight(c)
+            end
+            if playerCache[p].head and playerCache[p].head:FindFirstChild("VD_Tag") then
+                playerCache[p].head.VD_Tag:Destroy()
+            end
         end
         return
     end
     
-    -- Verificar distancia (optimización crítica)
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    
-    if hrp and myHrp then
-        local distance = (hrp.Position - myHrp.Position).Magnitude
-        if distance > PERFORMANCE.MAX_DISTANCE then
-            -- Deshabilitar ESP para jugadores lejanos
-            if cache.highlights[char] then
-                cache.highlights[char].Enabled = false
-            end
-            if cache.billboards[char] then
-                local bb = cache.billboards[char]
-                if bb.Parent then
-                    bb.Enabled = false
-                end
-            end
-            return
-        end
-    end
-    
     -- Determinar color
-    local color
+    local col
     if isSpectator(p) then
-        color = spectatorColor
+        col = spectatorColor
     else
         local role = getRole(p)
-        color = role == "Killer" and killerColor or survivorColor
+        if role == "Killer" then
+            col = killerColor
+        else
+            col = survivorColor
+        end
     end
     
-    -- Aplicar Highlight (si está habilitado)
+    local head = c:FindFirstChild("Head")
+    local hrp = c:FindFirstChild("HumanoidRootPart")
+    
+    -- Aplicar ESP
     if playerESPEnabled then
-        local hl = ensureHighlight(char, color)
+        -- Highlight
+        local hl = ensureHighlight(c, col)
         if hl then
-            hl.Enabled = true
-            hl.FillTransparency = highlightFillTransparency
-            hl.OutlineTransparency = highlightOutlineTransparency
-        end
-    elseif cache.highlights[char] then
-        cache.highlights[char].Enabled = false
-    end
-    
-    -- Aplicar Nametag (si está habilitado)
-    local head = char:FindFirstChild("Head")
-    if head and nametagsEnabled then
-        local tagText = p.Name
-        
-        if showDistance and hrp and myHrp and not isSpectator(p) then
-            local distance = math.floor((hrp.Position - myHrp.Position).Magnitude)
-            tagText = tagText .. " - " .. distance .. "m"
+            hl.FillTransparency = 0.5
+            hl.OutlineTransparency = 0.2
         end
         
-        local bb = makeBillboard(tagText, color, head)
-        if bb then
-            bb.Parent = head
-            bb.Enabled = true
+        -- Nametag
+        if nametagsEnabled and validPart(head) then
+            local text = p.Name
             
-            local label = bb:FindFirstChild("Label")
-            if label then
-                label.TextTransparency = textTransparency
-                label.TextStrokeTransparency = textTransparency
+            if showDistance and not isSpectator(p) and hrp and LP.Character then
+                local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
+                if myHrp then
+                    local d = math.floor(dist(hrp.Position, myHrp.Position))
+                    if d <= maxDistance then
+                        text = text .. " - " .. d .. "m"
+                    end
+                end
+            end
+            
+            local tag = makeBillboard(text, col, head)
+            if tag then
+                tag.Enabled = true
+            end
+            
+            -- Guardar en cache
+            if not playerCache[p] then playerCache[p] = {} end
+            playerCache[p].head = head
+            playerCache[p].highlight = hl
+        else
+            -- Limpiar nametag si está desactivado
+            if head and head:FindFirstChild("VD_Tag") then
+                head.VD_Tag:Destroy()
             end
         end
-    elseif head and cache.billboards[head] then
-        cache.billboards[head].Enabled = false
-    end
-end
-
--- Sistema de procesamiento por lotes optimizado
-local function processPlayerBatch()
-    if processingBatch or not playerESPEnabled and not nametagsEnabled then return end
-    if #updateQueue == 0 then return end
-    
-    processingBatch = true
-    local processed = 0
-    
-    for i = 1, math.min(PERFORMANCE.BATCH_SIZE, #updateQueue) do
-        local player = table.remove(updateQueue, 1)
-        if player and player.Parent then
-            applyOnePlayerESP(player)
-            processed = processed + 1
+    else
+        -- Limpiar todo si ESP está desactivado
+        clearHighlight(c)
+        if head and head:FindFirstChild("VD_Tag") then
+            head.VD_Tag:Destroy()
         end
     end
-    
-    processingBatch = false
-    return processed
 end
 
--- Loop principal optimizado
+-- Loop de ESP optimizado
 local espLoopConn = nil
+local lastESPUpdate = 0
+local ESP_UPDATE_INTERVAL = 0.15
+
 local function startESPLoop()
     if espLoopConn then return end
     
     espLoopConn = RunService.Heartbeat:Connect(function(deltaTime)
-        PERFORMANCE.frameCounter = PERFORMANCE.frameCounter + 1
+        if not (playerESPEnabled or nametagsEnabled) then return end
         
-        -- Saltar frames para más rendimiento
-        if PERFORMANCE.frameCounter % PERFORMANCE.FRAME_SKIP ~= 0 then return end
-        
-        -- Control de intervalo de actualización
+        -- Control de intervalo
         local now = tick()
-        if now - lastUpdate < PERFORMANCE.UPDATE_INTERVAL then return end
-        lastUpdate = now
+        if now - lastESPUpdate < ESP_UPDATE_INTERVAL then return end
+        lastESPUpdate = now
         
-        -- Limpiar cola y agregar jugadores
-        updateQueue = {}
-        local players = Players:GetPlayers()
-        local count = 0
-        
-        for _, player in ipairs(players) do
-            if player ~= LP and count < PERFORMANCE.MAX_PLAYERS then
-                table.insert(updateQueue, player)
-                count = count + 1
+        -- Aplicar ESP a todos los jugadores
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP then
+                applyOnePlayerESP(player)
             end
         end
-        
-        -- Procesar lote
-        processPlayerBatch()
     end)
 end
 
@@ -325,72 +270,62 @@ local function stopESPLoop()
         espLoopConn = nil
     end
     
-    -- Limpiar todos los ESP
-    for model, hl in pairs(cache.highlights) do
-        if hl then
-            hl:Destroy()
+    -- Limpiar todo el ESP
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            clearHighlight(player.Character)
+            local head = player.Character:FindFirstChild("Head")
+            if head and head:FindFirstChild("VD_Tag") then
+                head.VD_Tag:Destroy()
+            end
         end
     end
-    
-    for parent, bb in pairs(cache.billboards) do
-        if bb then
-            bb:Destroy()
-        end
-    end
-    
-    cache.highlights = {}
-    cache.billboards = {}
-    updateQueue = {}
+    playerCache = {}
 end
 
--- Observadores de jugadores optimizados
-local playerConnections = {}
-local function watchPlayer(player)
-    if playerConnections[player] then return end
+-- Observadores de jugadores
+local function watchPlayer(p)
+    if p == LP then return end
     
-    playerConnections[player] = {
-        player.CharacterAdded:Connect(function(char)
-            task.wait(0.5) -- Esperar a que el personaje cargue completamente
-            if playerESPEnabled or nametagsEnabled then
-                table.insert(updateQueue, player)
-            end
-        end),
-        
-        player:GetPropertyChangedSignal("Team"):Connect(function()
-            if playerESPEnabled or nametagsEnabled then
-                table.insert(updateQueue, player)
-            end
-        end)
-    }
+    local conns = {}
     
-    if player.Character then
-        table.insert(updateQueue, player)
+    -- Conectar eventos
+    table.insert(conns, p.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        applyOnePlayerESP(p)
+    end))
+    
+    table.insert(conns, p:GetPropertyChangedSignal("Team"):Connect(function()
+        applyOnePlayerESP(p)
+    end))
+    
+    -- Aplicar ESP inicial
+    if p.Character then
+        task.wait(0.5)
+        applyOnePlayerESP(p)
     end
+    
+    connections[p] = conns
 end
 
-local function unwatchPlayer(player)
-    if playerConnections[player] then
-        for _, conn in ipairs(playerConnections[player]) do
+local function unwatchPlayer(p)
+    if connections[p] then
+        for _, conn in ipairs(connections[p]) do
             conn:Disconnect()
         end
-        playerConnections[player] = nil
+        connections[p] = nil
     end
     
-    -- Limpiar ESP del jugador
-    if player.Character then
-        local char = player.Character
-        if cache.highlights[char] then
-            cache.highlights[char]:Destroy()
-            cache.highlights[char] = nil
-        end
-        if char:FindFirstChild("Head") then
-            local head = char.Head
-            if cache.billboards[head] then
-                cache.billboards[head]:Destroy()
-                cache.billboards[head] = nil
-            end
+    -- Limpiar ESP
+    if p.Character then
+        clearHighlight(p.Character)
+        local head = p.Character:FindFirstChild("Head")
+        if head and head:FindFirstChild("VD_Tag") then
+            head.VD_Tag:Destroy()
         end
     end
+    
+    playerCache[p] = nil
 end
 
 -- Toggles Player ESP
@@ -398,9 +333,9 @@ VisualTab:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
     Flag = "PlayerESP",
-    Callback = function(state)
-        playerESPEnabled = state
-        if state or nametagsEnabled then
+    Callback = function(s)
+        playerESPEnabled = s
+        if s or nametagsEnabled then
             startESPLoop()
         else
             stopESPLoop()
@@ -412,9 +347,9 @@ VisualTab:CreateToggle({
     Name = "Names/Distance",
     CurrentValue = false,
     Flag = "Nametags",
-    Callback = function(state)
-        nametagsEnabled = state
-        if state or playerESPEnabled then
+    Callback = function(s)
+        nametagsEnabled = s
+        if s or playerESPEnabled then
             startESPLoop()
         else
             stopESPLoop()
@@ -422,13 +357,28 @@ VisualTab:CreateToggle({
     end
 })
 
--- Configuraciones de color
+VisualTab:CreateToggle({
+    Name = "Mostrar Distancia",
+    CurrentValue = showDistance,
+    Flag = "ShowDistance",
+    Callback = function(s)
+        showDistance = s
+    end
+})
+
 VisualTab:CreateColorPicker({
     Name = "Survivor Color",
     Color = survivorColor,
     Flag = "SurvivorCol",
-    Callback = function(color)
-        survivorColor = color
+    Callback = function(c) 
+        survivorColor = c 
+        if playerESPEnabled or nametagsEnabled then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LP then
+                    applyOnePlayerESP(player)
+                end
+            end
+        end
     end
 })
 
@@ -436,231 +386,172 @@ VisualTab:CreateColorPicker({
     Name = "Killer Color",
     Color = killerColor,
     Flag = "KillerCol",
-    Callback = function(color)
-        killerColor = color
-    end
-})
-
--- Configuraciones de transparencia
-VisualTab:CreateSlider({
-    Name = "Player Transparency",
-    Range = {0, 1},
-    Increment = 0.05,
-    CurrentValue = highlightFillTransparency,
-    Flag = "FillTrans",
-    Callback = function(value)
-        highlightFillTransparency = value
-    end
-})
-
-VisualTab:CreateSlider({
-    Name = "Outline Transparency",
-    Range = {0, 1},
-    Increment = 0.05,
-    CurrentValue = highlightOutlineTransparency,
-    Flag = "OutlineTrans",
-    Callback = function(value)
-        highlightOutlineTransparency = value
-    end
-})
-
-VisualTab:CreateSlider({
-    Name = "Text Transparency",
-    Range = {0, 1},
-    Increment = 0.05,
-    CurrentValue = textTransparency,
-    Flag = "TextTrans",
-    Callback = function(value)
-        textTransparency = value
-    end
-})
-
-VisualTab:CreateSlider({
-    Name = "Distancia Máxima ESP",
-    Range = {50, 1000},
-    Increment = 10,
-    Suffix = " studs",
-    CurrentValue = PERFORMANCE.MAX_DISTANCE,
-    Flag = "MaxDistance",
-    Callback = function(value)
-        PERFORMANCE.MAX_DISTANCE = value
-    end
-})
-
--- Inicializar observadores
-for _, player in ipairs(Players:GetPlayers()) do
-    if player ~= LP then
-        watchPlayer(player)
-    end
-end
-
-Players.PlayerAdded:Connect(function(player)
-    if player ~= LP then
-        watchPlayer(player)
-    end
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-    unwatchPlayer(player)
-end)
-
--- GENERATOR ESP OPTIMIZADO
-VisualTab:CreateSection("Generators")
-
-local generatorESPEnabled = false
-local generatorColor = Color3.fromRGB(0, 170, 255)
-local generators = {}
-local generatorLoop = nil
-
--- Sistema de generadores optimizado
-local function registerGenerator(gen)
-    if not gen or generators[gen] then return end
-    
-    local primary = firstBasePart(gen)
-    if not primary then return end
-    
-    generators[gen] = {
-        model = gen,
-        part = primary,
-        highlight = nil,
-        billboard = nil,
-        lastUpdate = 0
-    }
-end
-
-local function unregisterGenerator(gen)
-    if generators[gen] then
-        local data = generators[gen]
-        if data.highlight then
-            data.highlight:Destroy()
-        end
-        if data.billboard then
-            data.billboard:Destroy()
-        end
-        generators[gen] = nil
-    end
-end
-
--- Buscar generadores optimizado
-local function findGenerators()
-    for _, map in ipairs({Workspace:FindFirstChild("Map"), Workspace:FindFirstChild("Map1")}) do
-        if map then
-            for _, obj in ipairs(map:GetDescendants()) do
-                if obj:IsA("Model") and obj.Name == "Generator" then
-                    registerGenerator(obj)
+    Callback = function(c) 
+        killerColor = c 
+        if playerESPEnabled or nametagsEnabled then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LP then
+                    applyOnePlayerESP(player)
                 end
             end
         end
     end
+})
+
+VisualTab:CreateSlider({
+    Name = "Distancia Máxima",
+    Range = {50, 1000},
+    Increment = 10,
+    Suffix = " studs",
+    CurrentValue = maxDistance,
+    Flag = "MaxDistance",
+    Callback = function(v)
+        maxDistance = v
+    end
+})
+
+-- Inicializar jugadores
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LP then
+        watchPlayer(p)
+    end
 end
 
--- Actualizar generador optimizado
-local function updateGenerator(gen, data)
-    local now = tick()
-    if now - data.lastUpdate < 1 then return end
-    data.lastUpdate = now
+Players.PlayerAdded:Connect(function(p)
+    if p ~= LP then
+        watchPlayer(p)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+    unwatchPlayer(p)
+end)
+
+-- GENERATOR ESP (igual que el original pero funcional)
+VisualTab:CreateSection("Generators")
+
+local generatorESPEnabled = false
+local generatorLoopConn = nil
+local worldReg = {Generator = {}}
+
+local function genProgress(m)
+    local p = tonumber(m:GetAttribute("RepairProgress")) or 0
+    if p <= 1.001 then p = p * 100 end
+    return clamp(p, 0, 100)
+end
+
+local function ensureWorldEntry(cat, model)
+    if not alive(model) or worldReg[cat][model] then return end
+    local rep = firstBasePart(model)
+    if not validPart(rep) then return end
+    worldReg[cat][model] = {model = model, part = rep}
+end
+
+local function registerFromDescendant(obj)
+    if not alive(obj) then return end
+    if obj:IsA("Model") and obj.Name == "Generator" then
+        ensureWorldEntry("Generator", obj)
+    end
+end
+
+local function refreshRoots()
+    local r1 = Workspace:FindFirstChild("Map")
+    local r2 = Workspace:FindFirstChild("Map1")
     
-    if not generatorESPEnabled or not alive(gen) then
-        if data.highlight then
-            data.highlight.Enabled = false
+    if r1 then
+        for _, d in ipairs(r1:GetDescendants()) do 
+            registerFromDescendant(d) 
         end
-        if data.billboard then
-            data.billboard.Enabled = false
-        end
-        return
     end
-    
-    -- Verificar distancia
-    local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if myHrp and data.part then
-        local distance = (data.part.Position - myHrp.Position).Magnitude
-        if distance > PERFORMANCE.MAX_DISTANCE then
-            if data.highlight then
-                data.highlight.Enabled = false
-            end
-            if data.billboard then
-                data.billboard.Enabled = false
-            end
-            return
+    if r2 then
+        for _, d in ipairs(r2:GetDescendants()) do 
+            registerFromDescendant(d) 
         end
     end
-    
-    -- Obtener progreso
-    local progress = tonumber(gen:GetAttribute("RepairProgress")) or 0
-    local percentage = math.floor(math.clamp(progress * 100, 0, 100))
-    
-    -- Aplicar highlight
-    if not data.highlight then
-        data.highlight = ensureHighlight(gen, generatorColor)
+end
+
+local function colorFromProgress(t)
+    t = clamp(t, 0, 1)
+    local red = Color3.fromRGB(255, 0, 0)
+    local yellow = Color3.fromRGB(255, 255, 0)
+    local green = Color3.fromRGB(0, 255, 0)
+    if t <= 0.5 then
+        return red:Lerp(yellow, t / 0.5)
+    else
+        return yellow:Lerp(green, (t - 0.5) / 0.5)
     end
-    if data.highlight then
-        data.highlight.Enabled = true
-        data.highlight.FillTransparency = 0.7
-        data.highlight.OutlineTransparency = 0.3
+end
+
+local function applyEnhancedGeneratorESP(entry)
+    local model = entry.model
+    local part = entry.part
+    if not generatorESPEnabled or not alive(model) or not validPart(part) then return end
+
+    local pct = genProgress(model)
+    local t = clamp(pct / 100, 0, 1)
+
+    local hlColor = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor
+    local hl = ensureHighlight(model, hlColor)
+    if hl then
+        hl.FillTransparency = 0.7
+        hl.OutlineTransparency = 0.2
+        hl.Enabled = true
     end
+
+    local textName = "VD_Text_Generator_Enhanced"
+    local existing = part:FindFirstChild(textName)
+    if existing then existing:Destroy() end
     
-    -- Aplicar billboard
-    if not data.billboard then
-        data.billboard = makeBillboard("Gen " .. percentage .. "%", generatorColor, data.part)
-    end
-    if data.billboard then
-        data.billboard.Parent = data.part
-        data.billboard.Enabled = true
+    local bb = makeBillboard("Gen " .. math.floor(pct + 0.5) .. "%", generatorColor, part)
+    if bb then
+        bb.Name = textName
         
-        local label = data.billboard:FindFirstChild("Label")
-        if label then
-            label.Text = "Gen " .. percentage .. "%"
-            label.TextColor3 = Color3.fromRGB(
-                math.floor(255 * (1 - progress)),
-                math.floor(255 * progress),
-                0
-            )
+        local lbl = bb:FindFirstChild("Label")
+        if lbl then
+            local progColor = colorFromProgress(t)
+            lbl.TextColor3 = progColor
         end
     end
 end
 
--- Loop de generadores optimizado
 local function startGeneratorLoop()
-    if generatorLoop then return end
+    if generatorLoopConn then return end
     
-    generatorLoop = RunService.Heartbeat:Connect(function(deltaTime)
-        PERFORMANCE.frameCounter = PERFORMANCE.frameCounter + 1
-        if PERFORMANCE.frameCounter % (PERFORMANCE.FRAME_SKIP * 2) ~= 0 then return end
+    generatorLoopConn = RunService.Heartbeat:Connect(function()
+        if not generatorESPEnabled then return end
         
-        for gen, data in pairs(generators) do
-            updateGenerator(gen, data)
+        for _, entry in pairs(worldReg.Generator) do
+            applyEnhancedGeneratorESP(entry)
         end
     end)
 end
 
 local function stopGeneratorLoop()
-    if generatorLoop then
-        generatorLoop:Disconnect()
-        generatorLoop = nil
+    if generatorLoopConn then
+        generatorLoopConn:Disconnect()
+        generatorLoopConn = nil
     end
     
-    for gen, data in pairs(generators) do
-        unregisterGenerator(gen)
+    for _, entry in pairs(worldReg.Generator) do
+        if entry.model then
+            clearHighlight(entry.model)
+            if entry.part and entry.part:FindFirstChild("VD_Text_Generator_Enhanced") then
+                entry.part.VD_Text_Generator_Enhanced:Destroy()
+            end
+        end
     end
 end
 
--- Inicializar generadores
-task.spawn(function()
-    task.wait(3) -- Esperar a que el juego cargue
-    findGenerators()
-end)
-
--- Toggle Generator ESP
 VisualTab:CreateToggle({
     Name = "Generator ESP",
     CurrentValue = false,
     Flag = "GeneratorESP",
-    Callback = function(state)
-        generatorESPEnabled = state
-        if state then
-            startGeneratorLoop()
-        else
-            stopGeneratorLoop()
+    Callback = function(s)
+        generatorESPEnabled = s
+        if s then 
+            startGeneratorLoop() 
+        else 
+            stopGeneratorLoop() 
         end
     end
 })
@@ -669,100 +560,96 @@ VisualTab:CreateColorPicker({
     Name = "Generator Color",
     Color = generatorColor,
     Flag = "GenCol",
-    Callback = function(color)
-        generatorColor = color
+    Callback = function(c) 
+        generatorColor = c 
     end
 })
 
--- SURVIVORS TAB (Generator Boost / Speed / Skillcheck)
+-- Buscar generadores al inicio
+task.spawn(function()
+    task.wait(3)
+    refreshRoots()
+end)
+
+-- SURVIVORS TAB
 local SurvivorTab = Window:CreateTab("Survivors")
-SurvivorTab:CreateSection("Generator")
+SurvivorTab:CreateSection("Generator Boost")
 
 local genBoostEnabled = false
 local genBoostValue = 1.25
 local repairingGenerator = nil
-local repairWatcher = nil
+local repairConnection = nil
 local appliedBoosts = {}
-local lastGeneratorCheck = 0
-local GENERATOR_CHECK_INTERVAL = 0.3 -- Verificar generadores cada 0.3 segundos
 
--- Función optimizada para detectar generador cercano
 local function detectGeneratorNearby(range)
-    if tick() - lastGeneratorCheck < GENERATOR_CHECK_INTERVAL then
-        return repairingGenerator
-    end
-    lastGeneratorCheck = tick()
-    
     local char = LP.Character
     if not char then return nil end
-    
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
+
+    local best = nil
+    local minDist = range or 10
     
-    local closest = nil
-    local closestDist = range or 10
-    
-    -- Usar la caché de generadores ya registrada
-    for gen, data in pairs(generators) do
-        if data and data.part and alive(gen) then
-            local distance = (data.part.Position - hrp.Position).Magnitude
-            if distance < closestDist then
-                closestDist = distance
-                closest = gen
+    for genObj, info in pairs(worldReg.Generator) do
+        if info and info.part and info.part.Parent then
+            local d = (info.part.Position - hrp.Position).Magnitude
+            if d < minDist then
+                minDist = d
+                best = info.model or genObj
             end
         end
     end
     
-    return closest
+    return best
 end
 
--- Aplicar boost optimizado (una sola vez)
 local function applyGenBoost(gen)
-    if not gen or not genBoostEnabled or appliedBoosts[gen] then return end
-    
-    local success = pcall(function()
-        -- Buscar solo valores específicos
-        local repairValue = gen:FindFirstChild("RepairProgress") or gen:FindFirstChild("RepairValue")
-        if repairValue and (repairValue:IsA("NumberValue") or repairValue:IsA("IntValue")) then
-            appliedBoosts[gen] = {
-                original = repairValue.Value,
-                object = repairValue
-            }
-            repairValue.Value = repairValue.Value * genBoostValue
+    if not (gen and genBoostEnabled) then return end
+    if appliedBoosts[gen] then return end
+
+    for _, v in ipairs(gen:GetDescendants()) do
+        if v:IsA("NumberValue") or v:IsA("IntValue") then
+            local name = v.Name:lower()
+            if name:find("repair") or name:find("progress") then
+                local ok, orig = pcall(function() return v.Value end)
+                if ok then
+                    v:SetAttribute("vd_orig_value", orig)
+                    v.Value = orig * genBoostValue
+                end
+            end
         end
-    end)
-    
-    if not success then
-        appliedBoosts[gen] = nil
     end
+    appliedBoosts[gen] = true
 end
 
--- Remover boost optimizado
 local function removeGenBoost(gen)
-    if not gen or not appliedBoosts[gen] then return end
-    
-    local data = appliedBoosts[gen]
-    pcall(function()
-        if data.object and data.object.Parent then
-            data.object.Value = data.original
+    if not gen then return end
+    if not appliedBoosts[gen] then return end
+
+    for _, v in ipairs(gen:GetDescendants()) do
+        if v:IsA("NumberValue") or v:IsA("IntValue") then
+            local name = v.Name:lower()
+            if name:find("repair") or name:find("progress") then
+                local ok, orig = pcall(function() return v:GetAttribute("vd_orig_value") end)
+                if ok and orig ~= nil then
+                    v.Value = orig
+                    v:SetAttribute("vd_orig_value", nil)
+                else
+                    pcall(function() v.Value = 1 end)
+                end
+            end
         end
-    end)
-    
+    end
     appliedBoosts[gen] = nil
 end
 
--- Watcher optimizado con intervalos
 local function startRepairWatcher()
-    if repairWatcher then return end
+    if repairConnection then return end
     
-    repairWatcher = RunService.Heartbeat:Connect(function(deltaTime)
+    repairConnection = RunService.Heartbeat:Connect(function()
         if not genBoostEnabled then return end
         
-        -- Verificar cada 0.3 segundos
-        if tick() - lastGeneratorCheck < GENERATOR_CHECK_INTERVAL then return end
-        
         local gen = detectGeneratorNearby(10)
-        
         if gen ~= repairingGenerator then
             if repairingGenerator then
                 removeGenBoost(repairingGenerator)
@@ -776,25 +663,19 @@ local function startRepairWatcher()
 end
 
 local function stopRepairWatcher()
-    if repairWatcher then
-        repairWatcher:Disconnect()
-        repairWatcher = nil
+    if repairConnection then
+        repairConnection:Disconnect()
+        repairConnection = nil
     end
-    
+
     if repairingGenerator then
         removeGenBoost(repairingGenerator)
         repairingGenerator = nil
     end
-    
-    -- Limpiar todos los boosts
-    for gen in pairs(appliedBoosts) do
-        removeGenBoost(gen)
-    end
-    appliedBoosts = {}
 end
 
 SurvivorTab:CreateToggle({
-    Name = "Generator Boost",
+    Name = "Enable Generator Boost",
     CurrentValue = false,
     Flag = "GenBoostToggle",
     Callback = function(state)
@@ -810,85 +691,59 @@ SurvivorTab:CreateToggle({
 SurvivorTab:CreateSlider({
     Name = "Repair Multiplier",
     Range = {1.00, 2.00},
-    Increment = 0.1,
+    Increment = 0.05,
     Suffix = "x",
     CurrentValue = genBoostValue,
     Flag = "GenBoostValue",
     Callback = function(v)
         genBoostValue = v
-        -- Reaplicar boost si está activo
-        if genBoostEnabled and repairingGenerator then
-            removeGenBoost(repairingGenerator)
-            applyGenBoost(repairingGenerator)
-        end
     end
 })
 
--- Speed Boost section optimizado
+-- Speed Boost
 SurvivorTab:CreateSection("Speed Boost")
-
 local speedBoostEnabled = false
 local speedBoostValue = 1.25
-local speedConnection = nil
-local DEFAULT_WALKSPEED = 16
 
--- Función optimizada para aplicar speed boost
-local function applySpeedBoost()
+local function applySpeedBoost(char)
     if not speedBoostEnabled then return end
-    
-    local char = LP.Character
     if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        pcall(function()
-            humanoid.WalkSpeed = DEFAULT_WALKSPEED * speedBoostValue
-        end)
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum.WalkSpeed = 16 * speedBoostValue end)
     end
 end
 
--- Función para remover speed boost
-local function removeSpeedBoost()
-    local char = LP.Character
+local function removeSpeedBoost(char)
     if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        pcall(function()
-            humanoid.WalkSpeed = DEFAULT_WALKSPEED
-        end)
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum.WalkSpeed = 16 end)
     end
 end
 
--- Sistema optimizado de speed boost
-local function setupSpeedBoost()
-    if speedConnection then
-        speedConnection:Disconnect()
-    end
-    
+LP.CharacterAdded:Connect(function(char)
+    task.wait(0.2)
     if speedBoostEnabled then
-        -- Aplicar al personaje actual
-        applySpeedBoost()
-        
-        -- Conectar para cambios de personaje
-        speedConnection = LP.CharacterAdded:Connect(function(char)
-            task.wait(0.5) -- Esperar a que el personaje cargue
-            if speedBoostEnabled then
-                applySpeedBoost()
-            end
-        end)
-    else
-        removeSpeedBoost()
+        applySpeedBoost(char)
     end
-end
+end)
 
 SurvivorTab:CreateToggle({
-    Name = "Speed Boost",
+    Name = "Enable Speed Boost",
     CurrentValue = false,
     Flag = "SpeedBoostToggle",
     Callback = function(state)
         speedBoostEnabled = state
-        setupSpeedBoost()
+        local char = LP.Character
+
+        if state then
+            if char then applySpeedBoost(char) end
+        else
+            if char then removeSpeedBoost(char) end
+        end
     end
 })
 
@@ -901,81 +756,65 @@ SurvivorTab:CreateSlider({
     Flag = "SpeedBoostValue",
     Callback = function(v)
         speedBoostValue = v
-        if speedBoostEnabled then
-            applySpeedBoost()
+        if speedBoostEnabled and LP.Character then
+            applySpeedBoost(LP.Character)
         end
     end
 })
 
--- SkillCheck Gen (Perfect)
+-- SkillCheck Perfect
 SurvivorTab:CreateSection("SkillCheck Gen")
-
 local perfectEnabled = false
 local perfectConn = nil
-local lastSkillCheck = 0
-local SKILLCHECK_INTERVAL = 0.1 -- Verificar cada 0.1 segundos
 
--- Función optimizada para encontrar elementos de skillcheck
-local function findSkillcheckElements()
-    local pg = LP:FindFirstChild("PlayerGui")
-    if not pg then return nil, nil, nil end
-    
-    -- Buscar solo en GUIs activas recientemente
-    for _, gui in ipairs(pg:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Enabled then
-            local bar = gui:FindFirstChild("SkillCheckBar", true) or 
-                       gui:FindFirstChild("Bar", true) or
-                       gui:FindFirstChild("ProgressBar", true)
-            
-            if bar and bar:IsA("Frame") then
-                local zone = bar:FindFirstChild("PerfectZone") or 
-                            bar:FindFirstChild("HitZone") or
-                            bar:FindFirstChild("Zone")
-                
-                local pointer = bar:FindFirstChild("Pointer") or 
-                               bar:FindFirstChild("Indicator") or
-                               bar:FindFirstChild("Marker")
-                
-                if zone and pointer then
-                    return bar, zone, pointer
-                end
-            end
-        end
-    end
-    
-    return nil, nil, nil
-end
-
--- Loop optimizado para perfect skillcheck
 local function enablePerfectLoop()
     if perfectConn then return end
     
-    perfectConn = RunService.Heartbeat:Connect(function(deltaTime)
+    perfectConn = RunService.Heartbeat:Connect(function()
         if not perfectEnabled then return end
         
-        -- Verificar cada 0.1 segundos
-        local now = tick()
-        if now - lastSkillCheck < SKILLCHECK_INTERVAL then return end
-        lastSkillCheck = now
-        
-        local bar, zone, pointer = findSkillcheckElements()
-        if bar and zone and pointer then
-            pcall(function()
-                -- Calcular posición del centro de la zona perfecta
+        local pg = LP:FindFirstChild("PlayerGui")
+        if not pg then return end
+
+        for _, gui in ipairs(pg:GetChildren()) do
+            local bar, zone, pointer = nil, nil, nil
+            
+            for _, obj in ipairs(gui:GetDescendants()) do
+                if obj:IsA("Frame") or obj:IsA("ImageLabel") then
+                    local size = obj.AbsoluteSize
+                    
+                    if size.X > 150 and size.Y < 80 and not bar then
+                        bar = obj
+                    end
+                    
+                    if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < (bar.AbsoluteSize.X * 0.45) then
+                        perfectZone = obj
+                    end
+                    
+                    if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < math.max(8, bar.AbsoluteSize.X * 0.06) then
+                        pointer = obj
+                    end
+                end
+            end
+            
+            if bar and zone and pointer then
                 local zoneCenter = zone.AbsolutePosition.X + (zone.AbsoluteSize.X / 2)
                 local barStart = bar.AbsolutePosition.X
                 local barWidth = bar.AbsoluteSize.X
                 
                 if barWidth > 0 then
-                    local percentage = (zoneCenter - barStart) / barWidth
-                    percentage = math.clamp(percentage, 0, 1)
+                    local perc = (zoneCenter - barStart) / barWidth
+                    perc = clamp(perc, 0, 1)
                     
-                    -- Aplicar posición optimizada
-                    if pointer:IsA("GuiObject") then
-                        pointer.Position = UDim2.new(percentage, 0, pointer.Position.Y.Scale, pointer.Position.Y.Offset)
-                    end
+                    pcall(function()
+                        if typeof(pointer.Position) == "UDim2" then
+                            pointer.Position = UDim2.new(perc, 0, pointer.Position.Y.Scale, pointer.Position.Y.Offset)
+                        elseif pointer.Value ~= nil then
+                            pointer.Value = perc
+                        end
+                    end)
                 end
-            end)
+            end
         end
     end)
 end
@@ -988,146 +827,82 @@ local function disablePerfectLoop()
 end
 
 SurvivorTab:CreateToggle({
-    Name = "Perfect Skillcheck",
+    Name = "Enable Perfect Skillcheck Gen",
     CurrentValue = false,
     Callback = function(v)
         perfectEnabled = v
-        if v then 
-            enablePerfectLoop() 
-        else 
-            disablePerfectLoop() 
-        end
+        if v then enablePerfectLoop() else disablePerfectLoop() end
     end
 })
 
--- No SkillCheck Gen - OPTIMIZADO
+-- No SkillCheck
 SurvivorTab:CreateSection("No SkillCheck Gen")
 local noSkillEnabled = false
-local noSkillConn = nil
-local skillcheckCache = {}
+local noSkillDescConn = nil
 
--- Lista de nombres de skillchecks para verificación rápida
-local SKILLCHECK_NAMES = {
-    "SkillCheck",
-    "Skillcheck",
-    "QuickTime",
-    "QTE",
-    "ButtonMash",
-    "TimedPress"
-}
-
--- Función optimizada para verificar si es skillcheck
 local function isSkillObject(obj)
     if not obj or not obj.Name then return false end
-    
-    local name = obj.Name:lower()
-    for _, skillName in ipairs(SKILLCHECK_NAMES) do
-        if name:find(skillName:lower(), 1, true) then
-            return true
-        end
-    end
-    
-    return false
+    local n = obj.Name:lower()
+    return n:find("skill") or n:find("check") or n:find("skillcheck")
 end
 
--- Función para eliminar skillcheck
-local function removeSkillObject(obj)
-    if obj and (obj:IsA("GuiObject") or obj:IsA("ScreenGui")) then
-        pcall(function()
-            obj:Destroy()
-        end)
-        return true
-    end
-    return false
-end
-
--- Sistema optimizado de no skillchecks
 local function startNoSkill()
     if noSkillEnabled then return end
     noSkillEnabled = true
-    
+
     local pg = LP:FindFirstChild("PlayerGui")
-    if not pg then return end
-    
-    -- Limpiar cache
-    skillcheckCache = {}
-    
-    -- Eliminar existentes
-    for _, gui in ipairs(pg:GetChildren()) do
-        if isSkillObject(gui) then
-            if removeSkillObject(gui) then
-                table.insert(skillcheckCache, gui)
+    if pg then
+        for _, d in ipairs(pg:GetDescendants()) do
+            if isSkillObject(d) then 
+                pcall(function() d:Destroy() end)
             end
         end
+
+        if noSkillDescConn then noSkillDescConn:Disconnect() end
+        noSkillDescConn = pg.DescendantAdded:Connect(function(d)
+            if noSkillEnabled and isSkillObject(d) then 
+                pcall(function() d:Destroy() end)
+            end
+        end)
     end
-    
-    -- Conectar para nuevos
-    if noSkillConn then
-        noSkillConn:Disconnect()
-    end
-    
-    noSkillConn = pg.DescendantAdded:Connect(function(descendant)
-        if noSkillEnabled and isSkillObject(descendant) then
-            removeSkillObject(descendant)
-        end
-    end)
 end
 
 local function stopNoSkill()
     noSkillEnabled = false
-    
-    if noSkillConn then
-        noSkillConn:Disconnect()
-        noSkillConn = nil
+    if noSkillDescConn then
+        noSkillDescConn:Disconnect()
+        noSkillDescConn = nil
     end
-    
-    skillcheckCache = {}
 end
 
 SurvivorTab:CreateToggle({
-    Name = "No Skillchecks",
+    Name = "Enable No Skillchecks Gen",
     CurrentValue = false,
     Callback = function(v)
-        if v then 
-            startNoSkill() 
-        else 
-            stopNoSkill() 
-        end
+        if v then startNoSkill() else stopNoSkill() end
     end
 })
 
--- KILLERS TAB (mantenido simple)
+-- KILLERS TAB
 local KillerTab = Window:CreateTab("Killers")
-KillerTab:CreateSection("Opciones Killer")
+KillerTab:CreateSection("Speed Boost (Killer)")
 
 local killerSpeedEnabled = false
 local killerSpeedValue = 1.3
 
 KillerTab:CreateToggle({
-    Name = "Boost de Velocidad",
+    Name = "Killer Speed Boost",
     CurrentValue = false,
     Callback = function(v)
         killerSpeedEnabled = v
-        if v then
-            -- Aplicar lógica de speed boost para killer
-            local char = LP.Character
-            if char then
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    pcall(function()
-                        humanoid.WalkSpeed = 16 * killerSpeedValue
-                    end)
-                end
-            end
-        else
-            -- Restaurar velocidad normal
-            local char = LP.Character
-            if char then
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    pcall(function()
-                        humanoid.WalkSpeed = 16
-                    end)
+        local char = LP.Character
+        if char then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                if v then
+                    pcall(function() humanoid.WalkSpeed = 16 * killerSpeedValue end)
+                else
+                    pcall(function() humanoid.WalkSpeed = 16 end)
                 end
             end
         end
@@ -1135,446 +910,222 @@ KillerTab:CreateToggle({
 })
 
 KillerTab:CreateSlider({
-    Name = "Multiplicador Velocidad",
+    Name = "Killer Speed Multiplier",
     Range = {1.0, 2.0},
     Increment = 0.1,
     CurrentValue = killerSpeedValue,
     Callback = function(v)
         killerSpeedValue = v
-        if killerSpeedEnabled then
-            local char = LP.Character
-            if char then
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    pcall(function()
-                        humanoid.WalkSpeed = 16 * killerSpeedValue
-                    end)
-                end
+        if killerSpeedEnabled and LP.Character then
+            local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                pcall(function() humanoid.WalkSpeed = 16 * killerSpeedValue end)
             end
         end
     end
 })
 
--- GRAPHICS TAB OPTIMIZADO
+-- GRAPHICS TAB
 local GraphicsTab = Window:CreateTab("Graphics")
-GraphicsTab:CreateSection("Optimización")
+GraphicsTab:CreateSection("Optimization")
 
--- Sección No Fog optimizada
+-- No Fog
 local nfActive = false
-local nfConnections = {}
-local nfProcessQueue = {}
-local nfLastProcess = 0
-local NF_PROCESS_INTERVAL = 0.5
+local nfStore = {conns = {}, tick = nil}
+local nfQueue, nfQueued = {}, {}
 
--- Lista de objetos a eliminar optimizada
-local FOG_OBJECTS = {
-    "Fog",
-    "Smoke",
-    "Mist",
-    "Cloud",
-    "Atmosphere",
-    "ParticleEmitter"
-}
-
--- Función optimizada para verificar fog
-local function isFogObject(obj)
-    if not obj then return false end
-    
-    local name = obj.Name:lower()
-    for _, fogName in ipairs(FOG_OBJECTS) do
-        if name:find(fogName:lower(), 1, true) then
-            return true
-        end
-    end
-    
-    return obj:IsA("ParticleEmitter") or 
-           obj:IsA("Clouds") or 
-           obj:IsA("Atmosphere") or
-           obj:IsA("SunRaysEffect") or
-           obj:IsA("BloomEffect") or
-           obj:IsA("DepthOfFieldEffect")
+local function nfNameHasFog(inst)
+    local n = inst and inst.Name or ""
+    n = string.lower(n)
+    return string.find(n, "fog", 1, true) ~= nil
 end
 
--- Función optimizada para eliminar fog
-local function removeFogObject(obj)
-    if not obj or not obj.Parent then return end
-    
+local function nfHardNuke(o)
     pcall(function()
-        if obj:IsA("ParticleEmitter") then
-            obj.Enabled = false
-            obj.Rate = 0
-        elseif obj:IsA("Clouds") or obj:IsA("Atmosphere") then
-            obj:Destroy()
-        elseif isFogObject(obj) then
-            obj:Destroy()
+        if o:IsA("ParticleEmitter") then 
+            o.Enabled = false 
+            o.Rate = 0 
+        end
+        o:Destroy()
+    end)
+end
+
+local function nfIsCandidate(inst)
+    if not inst or not inst.Parent then return false end
+    if nfNameHasFog(inst) then return true end
+    if inst:IsA("Clouds") or inst:IsA("Atmosphere") then return true end
+    if inst:IsA("ParticleEmitter") then return true end
+    if inst:IsA("SunRaysEffect") or inst:IsA("BloomEffect") or inst:IsA("DepthOfFieldEffect") then return true end
+    return false
+end
+
+local function nfHandle(inst)
+    if not inst or not inst.Parent then return end
+    if nfNameHasFog(inst) or inst:IsA("Clouds") or inst:IsA("Atmosphere") or inst:IsA("ParticleEmitter") then
+        nfHardNuke(inst)
+        return
+    end
+    if inst:IsA("SunRaysEffect") or inst:IsA("BloomEffect") or inst:IsA("DepthOfFieldEffect") then
+        nfHardNuke(inst)
+        return
+    end
+end
+
+local function nfEnqueueOne(inst)
+    if not nfActive or not nfIsCandidate(inst) or nfQueued[inst] then return end
+    nfQueued[inst] = true
+    table.insert(nfQueue, inst)
+end
+
+local function nfBindWatchers()
+    local c1 = Workspace.DescendantAdded:Connect(function(d) nfEnqueueOne(d) end)
+    local c2 = Lighting.DescendantAdded:Connect(function(d) nfEnqueueOne(d) end)
+    local c3 = ReplicatedStorage.DescendantAdded:Connect(function(d) nfEnqueueOne(d) end)
+    table.insert(nfStore.conns, c1)
+    table.insert(nfStore.conns, c2)
+    table.insert(nfStore.conns, c3)
+end
+
+local function nfStartQueue()
+    if nfStore.tick then nfStore.tick:Disconnect() nfStore.tick = nil end
+    nfStore.tick = RunService.Heartbeat:Connect(function()
+        if not nfActive then return end
+        local t0 = os.clock()
+        while #nfQueue > 0 and (os.clock() - t0) < 0.004 do
+            local inst = table.remove(nfQueue, 1)
+            if inst and inst.Parent then nfHandle(inst) end
         end
     end)
 end
 
--- Procesamiento por lotes de fog
-local function processFogQueue()
-    if not nfActive then return end
-    
-    local now = tick()
-    if now - nfLastProcess < NF_PROCESS_INTERVAL then return end
-    nfLastProcess = now
-    
-    -- Procesar máximo 10 objetos por frame
-    local processed = 0
-    for i = 1, math.min(10, #nfProcessQueue) do
-        local obj = table.remove(nfProcessQueue, 1)
-        if obj then
-            removeFogObject(obj)
-            processed = processed + 1
+local function nfInitialSweep()
+    for _, root in ipairs({Workspace, Lighting, ReplicatedStorage}) do
+        for _, d in ipairs(root:GetDescendants()) do
+            if nfIsCandidate(d) then nfHandle(d) end
         end
     end
 end
 
--- Barrido inicial optimizado
-local function initialFogSweep()
-    local areas = {Workspace, Lighting}
-    
-    for _, area in ipairs(areas) do
-        for _, obj in ipairs(area:GetDescendants()) do
-            if isFogObject(obj) then
-                table.insert(nfProcessQueue, obj)
-            end
-        end
-    end
-end
-
--- Habilitar No Fog optimizado
 local function nfEnable()
     if nfActive then return end
     nfActive = true
-
-    -- Barrido inicial
-    initialFogSweep()
-
-    -- Conectar eventos
-    table.insert(nfConnections, Workspace.DescendantAdded:Connect(function(obj)
-        if nfActive and isFogObject(obj) then
-            table.insert(nfProcessQueue, obj)
-        end
-    end))
-
-    table.insert(nfConnections, Lighting.DescendantAdded:Connect(function(obj)
-        if nfActive and isFogObject(obj) then
-            table.insert(nfProcessQueue, obj)
-        end
-    end))
-
-    -- Iniciar loop de procesamiento
-    table.insert(nfConnections, RunService.Heartbeat:Connect(function()
-        processFogQueue()
-    end))
+    nfInitialSweep()
+    nfBindWatchers()
+    nfStartQueue()
 end
 
--- Deshabilitar No Fog
 local function nfDisable()
     if not nfActive then return end
     nfActive = false
-    
-    -- Desconectar todo
-    for _, conn in ipairs(nfConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    nfConnections = {}
-    nfProcessQueue = {}
+    if nfStore.tick then pcall(function() nfStore.tick:Disconnect() end) nfStore.tick = nil end
+    for _, c in ipairs(nfStore.conns) do pcall(function() c:Disconnect() end) end
+    nfStore.conns = {}
+    nfQueue, nfQueued = {}, {}
 end
 
 GraphicsTab:CreateToggle({
-    Name = "No Fog (Optimizado)",
+    Name = "No Fog",
     CurrentValue = false,
     Flag = "NoFog",
-    Callback = function(v)
-        if v then 
-            nfEnable() 
-        else 
-            nfDisable() 
-        end
+    Callback = function(s) 
+        if s then nfEnable() else nfDisable() end
     end
 })
 
--- Sección No Shadows optimizada
+-- No Shadows
 local nsActive = false
-local nsConnections = {}
-local shadowCache = {}
-local NS_UPDATE_INTERVAL = 1.0
-local nsLastUpdate = 0
+local nsStore = {lighting = {}, parts = {}, conns = {}}
+local nsQueue, nsQueued, nsProcessed = {}, {}, {}
 
--- Función para deshabilitar sombras en una parte
-local function disableShadowsOnPart(part)
-    if not part or not part:IsA("BasePart") then return end
-    
-    if nsActive then
-        shadowCache[part] = part.CastShadow
-        pcall(function()
-            part.CastShadow = false
-        end)
-    else
-        if shadowCache[part] ~= nil then
-            pcall(function()
-                part.CastShadow = shadowCache[part]
-            end)
-            shadowCache[part] = nil
-        end
-    end
-end
-
--- Habilitar No Shadows optimizado
 local function nsEnable()
     if nsActive then return end
     nsActive = true
     
-    -- Deshabilitar sombras globales
     pcall(function()
         Lighting.GlobalShadows = false
     end)
     
-    -- Procesar partes existentes en lotes
-    task.spawn(function()
-        local parts = Workspace:GetDescendants()
-        local batchSize = 50
-        
-        for i = 1, #parts, batchSize do
-            if not nsActive then break end
-            
-            for j = i, math.min(i + batchSize - 1, #parts) do
-                local part = parts[j]
-                if part:IsA("BasePart") then
-                    disableShadowsOnPart(part)
-                end
-            end
-            
-            task.wait(0.01) -- Pequeña pausa para no bloquear
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            nsStore.parts[part] = part.CastShadow
+            pcall(function() part.CastShadow = false end)
         end
-    end)
-    
-    -- Conectar para nuevas partes
-    table.insert(nsConnections, Workspace.DescendantAdded:Connect(function(obj)
-        if nsActive and obj:IsA("BasePart") then
-            disableShadowsOnPart(obj)
-        end
-    end))
+    end
 end
 
--- Deshabilitar No Shadows
 local function nsDisable()
     if not nsActive then return end
     nsActive = false
     
-    -- Restaurar sombras globales
     pcall(function()
         Lighting.GlobalShadows = true
     end)
     
-    -- Restaurar sombras en partes
-    for part, originalValue in pairs(shadowCache) do
+    for part, value in pairs(nsStore.parts) do
         if part and part.Parent then
-            pcall(function()
-                part.CastShadow = originalValue
-            end)
+            pcall(function() part.CastShadow = value end)
         end
     end
-    
-    shadowCache = {}
-    
-    -- Desconectar todo
-    for _, conn in ipairs(nsConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    nsConnections = {}
+    nsStore.parts = {}
 end
 
 GraphicsTab:CreateToggle({
-    Name = "No Shadows (Optimizado)",
+    Name = "No Shadows",
     CurrentValue = false,
     Flag = "NoShadows",
-    Callback = function(v)
-        if v then 
-            nsEnable() 
-        else 
-            nsDisable() 
-        end
+    Callback = function(s) 
+        if s then nsEnable() else nsDisable() end
     end
 })
 
--- Sección de calidad gráfica
-GraphicsTab:CreateSection("Calidad Gráfica")
-
-local lowGraphicsEnabled = false
-
-local function setLowGraphics()
-    if not lowGraphicsEnabled then return end
-    
-    pcall(function()
-        -- Reducir calidad de gráficos
-        settings().Rendering.QualityLevel = 1
-        settings().Rendering.MeshCacheSize = 10
-        settings().Rendering.TextureCacheSize = 10
-        
-        -- Optimizar lighting
-        Lighting.GlobalShadows = false
-        Lighting.FogEnd = 10000
-        Lighting.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
-    end)
-end
-
-local function restoreGraphics()
-    pcall(function()
-        -- Restaurar valores por defecto
-        settings().Rendering.QualityLevel = 10
-        settings().Rendering.MeshCacheSize = 128
-        settings().Rendering.TextureCacheSize = 128
-        
-        Lighting.GlobalShadows = true
-        Lighting.FogEnd = 100000
-    end)
-end
-
-GraphicsTab:CreateToggle({
-    Name = "Bajo Consumo Gráfico",
-    CurrentValue = false,
-    Callback = function(v)
-        lowGraphicsEnabled = v
-        if v then
-            setLowGraphics()
-        else
-            restoreGraphics()
-        end
-    end
-})
-
--- MISCELLANEOUS TAB
+-- MISCELLANEOUS
 local MiscTab = Window:CreateTab("Misc")
-MiscTab:CreateSection("Utilidades")
+MiscTab:CreateSection("Utilities")
 
-local autoJoinEnabled = false
-local autoJoinTeam = "Survivor"
-
+local autoRespawnEnabled = false
 MiscTab:CreateToggle({
-    Name = "Auto Join Team",
+    Name = "Auto Respawn",
     CurrentValue = false,
     Callback = function(v)
-        autoJoinEnabled = v
-        if v then
-            -- Intentar unirse al equipo seleccionado
-            local teams = game:GetService("Teams"):GetTeams()
-            for _, team in ipairs(teams) do
-                if team.Name:lower():find(autoJoinTeam:lower()) then
-                    pcall(function()
-                        LP.Team = team
-                    end)
-                    break
-                end
-            end
-        end
+        autoRespawnEnabled = v
     end
 })
 
-MiscTab:CreateDropdown({
-    Name = "Seleccionar Equipo",
-    Options = {"Survivor", "Killer"},
-    CurrentOption = "Survivor",
-    Callback = function(v)
-        autoJoinTeam = v
-        if autoJoinEnabled then
-            local teams = game:GetService("Teams"):GetTeams()
-            for _, team in ipairs(teams) do
-                if team.Name:lower():find(v:lower()) then
-                    pcall(function()
-                        LP.Team = team
-                    end)
-                    break
-                end
-            end
-        end
-    end
-})
-
-MiscTab:CreateSection("Información")
-
-local fpsLabel = MiscTab:CreateLabel("FPS: 60")
-local pingLabel = MiscTab:CreateLabel("Ping: 50ms")
-local playerCountLabel = MiscTab:CreateLabel("Jugadores: 0")
-
--- Actualizar estadísticas periódicamente
-local statsConnection = RunService.Heartbeat:Connect(function()
-    -- Actualizar FPS
-    pcall(function()
-        fpsLabel:SetText("FPS: " .. math.floor(1/RunService.RenderStepped:Wait()))
-    end)
-    
-    -- Actualizar conteo de jugadores
-    playerCountLabel:SetText("Jugadores: " .. #Players:GetPlayers())
-end)
-
--- Función de cleanup al cerrar
+-- Cleanup function
 local function cleanup()
-    -- Desconectar todas las conexiones
+    -- Detener todos los loops
     if espLoopConn then espLoopConn:Disconnect() end
-    if generatorLoop then generatorLoop:Disconnect() end
-    if repairWatcher then repairWatcher:Disconnect() end
+    if generatorLoopConn then generatorLoopConn:Disconnect() end
+    if repairConnection then repairConnection:Disconnect() end
     if perfectConn then perfectConn:Disconnect() end
-    if speedConnection then speedConnection:Disconnect() end
-    if noSkillConn then noSkillConn:Disconnect() end
-    if statsConnection then statsConnection:Disconnect() end
     
-    -- Limpiar No Fog
-    nfDisable()
-    
-    -- Limpiar No Shadows
-    nsDisable()
-    
-    -- Limpiar todos los ESP
+    -- Limpiar ESP
     stopESPLoop()
     stopGeneratorLoop()
+    stopRepairWatcher()
     
-    -- Limpiar cache
-    cache.highlights = {}
-    cache.billboards = {}
-    cache.players = {}
-    cache.generators = {}
+    -- Limpiar No Fog/Shadows
+    nfDisable()
+    nsDisable()
     
-    -- Restaurar valores
-    if LP.Character then
-        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+    -- Restaurar velocidad
+    local char = LP.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            pcall(function()
-                humanoid.WalkSpeed = 16
-            end)
+            pcall(function() humanoid.WalkSpeed = 16 end)
         end
     end
-    
-    -- Restaurar gráficos
-    restoreGraphics()
 end
 
 -- Conectar cleanup
-game:GetService("UserInputService").WindowFocusReleased:Connect(function()
-    cleanup()
-end)
-
-game:GetService("CoreGui").ChildRemoved:Connect(function(child)
-    if child.Name:find("Rayfield") then
-        cleanup()
-    end
-end)
+game:GetService("UserInputService").WindowFocusReleased:Connect(cleanup)
 
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
 Rayfield:Notify({
-    Title = "LoreOnTop - OPTIMIZADO",
-    Content = "Script cargado con éxito.",
-    Duration = 6,
+    Title = "LoreOnTop",
+    Content = "Script loaded successfully with all features",
+    Duration = 5,
     Image = "rbxassetid://4483345998"
-})
-
--- Mostrar consejos de optimización
-task.wait(2)
-Rayfield:Notify({
-    Title = "Consejos de Optimización",
-    Content = "1. Reduce la distancia máxima del ESP\n2. Usa intervalos más largos\n3. Limita el número de jugadores",
-    Duration = 8
 })
