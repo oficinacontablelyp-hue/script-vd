@@ -125,7 +125,7 @@ local playerConns = {}
 local espLoopConn = nil
 
 -- Detectar si está espectando
-local function isSpectating(p)
+local function isSpectate(p)
     -- No tiene character → espectador
     if not p.Character then return true end
 
@@ -134,7 +134,7 @@ local function isSpectating(p)
     if hum and hum.Health <= 0 then return true end
 
     -- Atributo opcional del juego
-    if p:GetAttribute("Spectating") == true then return true end
+    if p:GetAttribute("Spectate") == true then return true end
 
     return false
 end
@@ -177,7 +177,7 @@ local function applyOnePlayerESP(p)
 
                 -- Distancia SOLO si no es espectador
                 if showDistance
-                    and not isSpectating(p)
+                    and not isSpectate(p)
                     and hrp
                     and LP.Character
                     and LP.Character:FindFirstChild("HumanoidRootPart")
