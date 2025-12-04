@@ -1,4 +1,3 @@
--- Cargar Rayfield
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 -- Servicios de Roblox
@@ -362,6 +361,9 @@ Tab:CreateSection("Survivors")
 local Tab = Window:CreateTab("Graphics")
 Tab:CreateSection("Optimization")
 
+local Tab = Window:CreateTab("Graphics")
+Tab:CreateSection("Optimization")
+
 -- Sección Disable Visual Effects
 local disableEffectsEnabled = false
 local effectsStore = {}
@@ -520,7 +522,7 @@ Tab:CreateToggle({
     Name = "Low Lighting Quality",
     CurrentValue = false,
     Flag = "LowLighting",
-    Callback = function(s) setLowLighting(state) end
+    Callback = function(s) setLowLighting(s) end  -- Corregido: era setLowLighting(state), ahora es setLowLighting(s)
 })
 
 -- Sección No Shadows
@@ -615,9 +617,7 @@ Tab:CreateToggle({
   Name = "No Shadows",
   CurrentValue = false,
   Flag = "NoShadows",
-  Callback = function(s) if s then nsEnable() else nsDisable()
-    end
-end
+  Callback = function(s) if s then nsEnable() else nsDisable() end
 })
 
 -- Sección No Fog
@@ -728,11 +728,9 @@ Tab:CreateToggle({
   Name = "No Fog",
   CurrentValue = false,
   Flag = "NoFog",
-  Callback = function(s) if s then nfEnable() else nfDisable()
-    end
-end
+  Callback = function(s) if s then nfEnable() else nfDisable() end
 })
 
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title = "LoreOnTop", Content = "Loaded", Duration = 6})
+Rayfield:Notify({Title = "ESP Suite", Content = "Loaded", Duration = 6})
