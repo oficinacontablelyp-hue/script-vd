@@ -443,7 +443,67 @@ refreshRoots()
 
 -- SURVIVORS & KILLERS
 local SurvivorTab = Window:CreateTab("Survivors")
-SurvivorTab:CreateSection("Generators")
+SurvivorTab:CreateSection("Generator Boost")
+
+local genBoostEnabled = false
+local genBoostValue = 1.25
+
+local function applyGenBoost(char)
+    if not genBoostEnabled then return end
+    if not (char and char:IsA("Model")) then return end
+    pcall(function()
+        char:SetAttribute("GenBoost", genBoostValue)
+    end)
+end
+
+local function removeGenBoost(char)
+    if not (char and char:IsA("Model")) then return end
+    pcall(function()
+        if char:GetAttribute("GenBoost") ~= nil then
+            char:SetAttribute("GenBoost", nil)
+        end
+    end)
+end
+
+-- Aplicar si respawneas
+LP.CharacterAdded:Connect(function(char)
+    task.wait(0.2)
+    if genBoostEnabled then
+        applyGenBoost(char)
+    end
+end)
+
+-- Toggle ON/OFF
+SurvivorTab:CreateToggle({
+    Name = "Enable Generator Boost",
+    CurrentValue = false,
+    Flag = "GenBoostToggle",
+    Callback = function(state)
+        genBoostEnabled = state
+        local char = LP.Character
+        if state then
+            if char then applyGenBoost(char) end
+        else
+            if char then removeGenBoost(char) end
+        end
+    end
+})
+
+-- Slider de fuerza del boost
+SurvivorTab:CreateSlider({
+    Name = "Boost Multiplier",
+    Range = {1.00, 2.00},
+    Increment = 0.01,
+    Suffix = "x",
+    CurrentValue = genBoostValue,
+    Flag = "GenBoostValue",
+    Callback = function(v)
+        genBoostValue = v
+        if genBoostEnabled and LP.Character then
+            applyGenBoost(LP.Character)
+        end
+    end
+})
 
 local KillerTab = Window:CreateTab("Killers")
 KillerTab:CreateSection("Survivors")
