@@ -291,7 +291,7 @@ local function applyEnhancedGeneratorESP(entry)
     -- Usar Highlight para glow en el modelo
     local hl = ensureHighlight(model, dynamicCol)
     if hl then
-        hl.FillTransparency = 0.7  -- Más transparente para glow
+        hl.FillTransparency = 0.8  -- Más transparente para glow
         hl.OutlineTransparency = 0.2
     end
     -- Etiqueta de texto
