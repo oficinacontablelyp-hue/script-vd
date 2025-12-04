@@ -92,15 +92,15 @@ end
 -- Crear la ventana principal
 local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
-    LoadingTitle = "Violence district",
-    LoadingSubtitle = "BY Lorenzo",
+    LoadingTitle = "Violence District",
+    LoadingSubtitle = "by Lore",
     ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
 
 -- Crear pestaña ESP
-local Tab = Window:CreateTab("Visual")
-Tab:CreateSection("ESP")
+local TabESP = Window:CreateTab("Visual")
+TabESP:CreateSection("ESP")
 
 -- Función para obtener el rol del jugador
 local function getRole(p)
@@ -195,7 +195,7 @@ local function unwatchPlayer(p)
 end
 
 -- Toggles para ESP de players
-Tab:CreateToggle({
+TabESP:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
     Flag = "PlayerESP",
@@ -205,8 +205,8 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateToggle({
-    Name = "Names",
+TabESP:CreateToggle({
+    Name = "Names/Distance",
     CurrentValue = false,
     Flag = "Nametags",
     Callback = function(s)
@@ -215,14 +215,14 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateColorPicker({
+TabESP:CreateColorPicker({
     Name = "Survivor Color",
     Color = survivorColor,
     Flag = "SurvivorCol",
     Callback = function(c) survivorColor = c end
 })
 
-Tab:CreateColorPicker({
+TabESP:CreateColorPicker({
     Name = "Killer Color",
     Color = killerColor,
     Flag = "KillerCol",
@@ -235,11 +235,12 @@ Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(unwatchPlayer)
 
 -- Sección para Generators
-Tab:CreateSection("Generators")
+TabESP:CreateSection("Generators")
 
 -- Variables para ESP de generators
 local generatorESPEnabled = false
 local generatorColor = Color3.fromRGB(0, 170, 255)  -- Azul
+local generatorTextPrefix = "Gen"  -- Prefijo personalizable para el texto
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
@@ -291,7 +292,7 @@ local function applyEnhancedGeneratorESP(entry)
     -- Usar Highlight para glow en el modelo
     local hl = ensureHighlight(model, dynamicCol)
     if hl then
-        hl.FillTransparency = 0.8  -- Más transparente para glow
+        hl.FillTransparency = 0.7  -- Más transparente para glow
         hl.OutlineTransparency = 0.2
     end
     -- Etiqueta de texto
@@ -304,7 +305,7 @@ local function applyEnhancedGeneratorESP(entry)
     end
     local lbl = bb:FindFirstChild("Label")
     if lbl then
-        local txt = "Gen " .. math.floor(pct + 0.5) .. "%"
+        local txt = "Gen" .. math.floor(pct + 0.5) .. "%"
         lbl.Text = txt
         lbl.TextColor3 = dynamicCol
     end
@@ -332,7 +333,7 @@ local function stopGeneratorEnhancedLoop()
 end
 
 -- Toggle para Generator ESP
-Tab:CreateToggle({
+TabESP:CreateToggle({
     Name = "Generator ESP",
     CurrentValue = false,
     Flag = "GeneratorESP",
@@ -342,8 +343,8 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateColorPicker({
-    Name = "Generator Color",
+TabESP:CreateColorPicker({
+    Name = "Generator Color (Base)",
     Color = generatorColor,
     Flag = "GenCol",
     Callback = function(c) generatorColor = c end
@@ -352,10 +353,6 @@ Tab:CreateColorPicker({
 -- Inicializar generators
 refreshRoots()
 
-local Tab = Window:CreateTab("Survivors")
-Tab:CreateSection("Generators")
-
-
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title = "LoreOnTop", Content = "Loaded", Duration = 6})
+Rayfield:Notify({Title = "ESP Suite", Content = "Loaded", Duration = 6})
