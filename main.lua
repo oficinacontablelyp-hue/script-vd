@@ -260,8 +260,8 @@ end
 
 local function registerFromDescendant(obj)
     if not alive(obj) then return end
-    if obj:IsA("Model") and obj.Name == "Generator" then
-        ensureWorldEntry("Generator", obj)
+    if obj:IsA("Model") and obj.Name == "Gen" then
+        ensureWorldEntry("Gen", obj)
     end
 end
 
