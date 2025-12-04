@@ -724,7 +724,7 @@ local function nfDisable()
     nfQueue, nfQueued = {}, setmetatable({}, {__mode = "k"})
 end
 
-TabVisual:CreateToggle({
+Tab:CreateToggle({
   Name = "No Fog",
   CurrentValue = false,
   Flag = "NoFog",
