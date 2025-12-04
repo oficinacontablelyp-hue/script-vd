@@ -89,7 +89,7 @@ local function clearHighlight(model)
     end
 end
 
--- Crear la ventana principal
+-- Crear ventana
 local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
     LoadingTitle = "Violence District",
@@ -102,7 +102,6 @@ local Window = Rayfield:CreateWindow({
 local Tab = Window:CreateTab("Visual")
 Tab:CreateSection("ESP")
 
--- Función para obtener el rol del jugador
 local function getRole(p)
     local tn = p.Team and p.Team.Name and p.Team.Name:lower() or ""
     if tn:find("killer") then return "Killer" end
@@ -110,7 +109,7 @@ local function getRole(p)
     return "Survivor"
 end
 
--- Variables para ESP de players
+-- Variables Player ESP
 local survivorColor = Color3.fromRGB(0, 255, 0)
 local killerColor = Color3.fromRGB(255, 0, 0)
 local playerESPEnabled = false
@@ -123,7 +122,7 @@ local textTransparency = 0.0
 local playerConns = {}
 local espLoopConn = nil
 
--- Función para aplicar ESP a un player
+-- Aplicar ESP a 1 player
 local function applyOnePlayerESP(p)
     if p == LP then return end
     local c = p.Character
@@ -132,7 +131,7 @@ local function applyOnePlayerESP(p)
     local col = (role == "Killer") and killerColor or survivorColor
     local head = c:FindFirstChild("Head")
     local hrp = c:FindFirstChild("HumanoidRootPart")
-    
+
     if playerESPEnabled then
         local hl = ensureHighlight(c, col)
         if hl then
@@ -147,8 +146,8 @@ local function applyOnePlayerESP(p)
             if l then
                 local text = p.Name
                 if showDistance and hrp and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                    local dist = math.floor(dist(hrp.Position, LP.Character.HumanoidRootPart.Position))
-                    text = text .. " - " .. dist .. "m"
+                    local d = math.floor(dist(hrp.Position, LP.Character.HumanoidRootPart.Position))
+                    text = text .. " - " .. d .. "m"
                 end
                 l.Text = text
                 l.TextColor3 = col
@@ -161,13 +160,11 @@ local function applyOnePlayerESP(p)
         end
     else
         clearHighlight(c)
-        local head = c:FindFirstChild("Head")
         local t = head and head:FindFirstChild("VD_Tag")
         if t then pcall(function() t:Destroy() end) end
     end
 end
 
--- Loops para ESP de players
 local function startESPLoop()
     if espLoopConn then return end
     espLoopConn = RunService.Heartbeat:Connect(function()
@@ -182,7 +179,6 @@ local function stopESPLoop()
     if espLoopConn then espLoopConn:Disconnect() espLoopConn = nil end
 end
 
--- Función para watch players
 local function watchPlayer(p)
     if playerConns[p] then for _, cn in ipairs(playerConns[p]) do cn:Disconnect() end end
     playerConns[p] = {}
@@ -203,7 +199,7 @@ local function unwatchPlayer(p)
     playerConns[p] = nil
 end
 
--- Toggles para ESP de players
+-- Toggles Player ESP
 Tab:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
@@ -242,7 +238,6 @@ Tab:CreateSlider({
     Name = "Player Transparency",
     Range = {0, 1},
     Increment = 0.1,
-    Suffix = "",
     CurrentValue = 0.5,
     Flag = "FillTrans",
     Callback = function(v) highlightFillTransparency = v end
@@ -252,7 +247,6 @@ Tab:CreateSlider({
     Name = "Outline Transparency",
     Range = {0, 1},
     Increment = 0.1,
-    Suffix = "",
     CurrentValue = 0.0,
     Flag = "OutlineTrans",
     Callback = function(v) highlightOutlineTransparency = v end
@@ -262,36 +256,31 @@ Tab:CreateSlider({
     Name = "Text Transparency",
     Range = {0, 1},
     Increment = 0.1,
-    Suffix = "",
     CurrentValue = 0.0,
     Flag = "TextTrans",
     Callback = function(v) textTransparency = v end
 })
 
-
--- Inicializar ESP de players
+-- Inicializar players
 for _, p in ipairs(Players:GetPlayers()) do if p ~= LP then watchPlayer(p) end end
 Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(unwatchPlayer)
 
--- Sección para Generators
+--GENERATOR ESP
+
 Tab:CreateSection("Generators")
 
--- Variables para ESP de generators
 local generatorESPEnabled = false
 local generatorColor = Color3.fromRGB(0, 170, 255)
-local generatorTextPrefix = "Gen"
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
--- Función para progreso de generator
 local function genProgress(m)
     local p = tonumber(m:GetAttribute("RepairProgress")) or 0
     if p <= 1.001 then p = p * 100 end
     return clamp(p, 0, 100)
 end
 
--- Función para registrar generators
 local function ensureWorldEntry(cat, model)
     if not alive(model) or worldReg[cat][model] then return end
     local rep = firstBasePart(model)
@@ -322,18 +311,20 @@ local function refreshRoots()
     end
 end
 
--- Función para aplicar ESP a generators (fijado sin sliders)
 local function applyEnhancedGeneratorESP(entry)
     local model = entry.model
     local part = entry.part
     if not generatorESPEnabled or not alive(model) or not validPart(part) then return end
+
     local pct = genProgress(model)
     local dynamicCol = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor
+
     local hl = ensureHighlight(model, dynamicCol)
     if hl then
-        hl.FillTransparency = 0.7  -- Fijado
-        hl.OutlineTransparency = 0.2  -- Fijado
+        hl.FillTransparency = 0.7
+        hl.OutlineTransparency = 0.2
     end
+
     local textName = "VD_Text_Generator_Enhanced"
     local bb = part:FindFirstChild(textName)
     if not bb then
@@ -341,10 +332,10 @@ local function applyEnhancedGeneratorESP(entry)
         bb.Name = textName
         bb.Parent = part
     end
+
     local lbl = bb:FindFirstChild("Label")
     if lbl then
-        local txt = "Gen" .. math.floor(pct + 0.5) .. "%"
-        lbl.Text = txt
+        lbl.Text = "Gen" .. math.floor(pct + 0.5) .. "%"
         lbl.TextColor3 = dynamicCol
         lbl.TextTransparency = 0.7
         lbl.TextStrokeTransparency = 0.2
@@ -352,6 +343,7 @@ local function applyEnhancedGeneratorESP(entry)
 end
 
 local generatorEnhancedLoopConn = nil
+
 local function startGeneratorEnhancedLoop()
     if generatorEnhancedLoopConn then return end
     generatorEnhancedLoopConn = RunService.Heartbeat:Connect(function()
@@ -363,42 +355,10 @@ local function startGeneratorEnhancedLoop()
 end
 
 local function stopGeneratorEnhancedLoop()
-    if generatorEnhancedLoopConn then generatorEnhancedLoopConn:Disconnect() generatorEnhancedLoopConn = nil end
-    for _, entry in pairs(worldReg.Generator) do
-        if entry.model then
-            clearHighlight(entry.model)
-            clearChild(entry.part, "VD_Text_Generator_Enhanced")
-        end
+    if generatorEnhancedLoopConn then
+        generatorEnhancedLoopConn:Disconnect()
+        generatorEnhancedLoopConn = nil
     end
-end
-    -- Etiqueta de texto
-    local textName = "VD_Text_Generator_Enhanced"
-    local bb = part:FindFirstChild(textName)
-    if not bb then
-        bb = makeBillboard("", dynamicCol)
-        bb.Name = textName
-        bb.Parent = part
-    end
-    local lbl = bb:FindFirstChild("Label")
-    if lbl then
-        local txt = "Gen" .. math.floor(pct + 0.5) .. "%"
-        lbl.Text = txt
-        lbl.TextColor3 = dynamicCol
-    end
-
-local generatorEnhancedLoopConn = nil
-local function startGeneratorEnhancedLoop()
-    if generatorEnhancedLoopConn then return end
-    generatorEnhancedLoopConn = RunService.Heartbeat:Connect(function()
-        if not generatorESPEnabled then return end
-        for _, entry in pairs(worldReg.Generator) do
-            applyEnhancedGeneratorESP(entry)
-        end
-    end)
-end
-
-local function stopGeneratorEnhancedLoop()
-    if generatorEnhancedLoopConn then generatorEnhancedLoopConn:Disconnect() generatorEnhancedLoopConn = nil end
     for _, entry in pairs(worldReg.Generator) do
         if entry.model then
             clearHighlight(entry.model)
@@ -407,7 +367,6 @@ local function stopGeneratorEnhancedLoop()
     end
 end
 
--- Toggle para Generator ESP
 Tab:CreateToggle({
     Name = "Generator ESP",
     CurrentValue = false,
@@ -425,16 +384,15 @@ Tab:CreateColorPicker({
     Callback = function(c) generatorColor = c end
 })
 
--- Inicializar generators
 refreshRoots()
 
-local Tab = Window:CreateTab("Survivors")
+local SurvivorTab = Window:CreateTab("Survivors")
 Tab:CreateSection("Generators")
 
-local Tab = Window:CreateTab("Killers")
+local KillerTab = Window:CreateTab("Killers")
 Tab:CreateSection("Survivors")
 
-local Tab = Window:CreateTab("Graphics")
+local GraphicsTab = Window:CreateTab("Graphics")
 Tab:CreateSection("Optimization")
 
 -- Sección No Fog
