@@ -124,7 +124,7 @@ local textTransparency = 0.0
 local playerConns = {}
 local espLoopConn = nil
 
-local function isSpectate(p)
+local function isSpectator(p)
     if not p then return false end
 
     if not p.Character then return true end
@@ -148,7 +148,7 @@ local function applyOnePlayerESP(p)
     end
 
     local col
-    if isSpectate(p) then
+    if isSpectator(p) then
         col = spectatorColor
     else
         local role = getRole(p)
