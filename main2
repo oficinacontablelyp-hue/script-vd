@@ -70,7 +70,7 @@ local function ensureHighlight(model, fill)
             h.Name = "VD_HL"
             h.Adornee = model
             h.FillTransparency = 0.5
-            h.OutlineTransparency = 0
+            h.OutlineTransparency = 0.2
             h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
             h.Parent = model
             return h
@@ -119,7 +119,7 @@ local nametagsEnabled = false
 local showDistance = true
 local maxDistance = 500
 local highlightFillTransparency = 0.5
-local highlightOutlineTransparency = 0.0
+local highlightOutlineTransparency = 0.2
 local textTransparency = 0.0
 local playerConns = {}
 local espLoopConn = nil
@@ -445,30 +445,29 @@ local SurvivorTab = Window:CreateTab("Survivors")
 SurvivorTab:CreateSection("Generator")
 
 local genBoostEnabled = false
-local genBoostValue = 1.00
-
+local genBoostValue = 1.25
 local repairBoostConnection = nil
 
 local function applyGenBoost()
     if not genBoostEnabled then return end
-
+    
     if LP:GetAttribute("repairboost") ~= genBoostValue then
         LP:SetAttribute("repairboost", genBoostValue)
     end
 end
-
 
 local function enableWatcher()
     if repairBoostConnection then
         repairBoostConnection:Disconnect()
     end
 
-    repairBoostConnection = LP:GetAttributeChangedSignal("repairboost"):Connect(function()
-        if genBoostEnabled then
-            task.wait() -- evita spam
-            applyGenBoost()
-        end
-    end)
+    repairBoostConnection =
+        LP:GetAttributeChangedSignal("repairboost"):Connect(function()
+            if genBoostEnabled then
+                task.wait() -- evita loop / spam
+                applyGenBoost()
+            end
+        end)
 end
 
 local function enableGenBoost()
@@ -479,11 +478,12 @@ end
 
 local function disableGenBoost()
     genBoostEnabled = false
+
     if repairBoostConnection then
         repairBoostConnection:Disconnect()
         repairBoostConnection = nil
     end
-    -- Restaurar valor del juego
+    
     LP:SetAttribute("repairboost", 1)
 end
 
@@ -509,8 +509,8 @@ SurvivorTab:CreateToggle({
 
 SurvivorTab:CreateSlider({
     Name = "Boost Multiplier",
-    Range = {1.00, 2.00},
-    Increment = 0.01,
+    Range = {1.00, 3.00},
+    Increment = 0.15,
     Suffix = "x",
     CurrentValue = genBoostValue,
     Flag = "GenBoostValue",
@@ -525,31 +525,52 @@ SurvivorTab:CreateSlider({
 SurvivorTab:CreateSection("Speed Boost")
 
 local speedBoostEnabled = false
-local speedBoostValue = 1.00
+local speedBoostValue = 1.25
 
-local function applySpeedBoost(char)
+local speedBoostConnection = nil
+
+local function applySpeedBoost()
     if not speedBoostEnabled then return end
-    if not (char and char:IsA("Model")) then return end
 
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.WalkSpeed = 16 * speedBoostValue
+    if LP:GetAttribute("speedboost") ~= speedBoostValue then
+        LP:SetAttribute("speedboost", speedBoostValue)
     end
 end
 
-local function removeSpeedBoost(char)
-    if not (char and char:IsA("Model")) then return end
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.WalkSpeed = 16
+local function enableWatcher()
+    if speedBoostConnection then
+        speedBoostConnection:Disconnect()
     end
+
+    speedBoostConnection = LP:GetAttributeChangedSignal("speedboost"):Connect(function()
+        if speedBoostEnabled then
+            task.wait()
+            applySpeedBoost()
+        end
+    end)
 end
 
-LP.CharacterAdded:Connect(function(char)
-    task.wait(0.2)
+local function enableSpeedBoost()
+    speedBoostEnabled = true
+    applySpeedBoost()
+    enableWatcher()
+end
+
+local function disableSpeedBoost()
+    speedBoostEnabled = false
+
+    if speedBoostConnection then
+        speedBoostConnection:Disconnect()
+        speedBoostConnection = nil
+    end
+
+    LP:SetAttribute("speedboost", 1)
+end
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
     if speedBoostEnabled then
-        applySpeedBoost(char)
+        applySpeedBoost()
     end
 end)
 
@@ -558,31 +579,36 @@ SurvivorTab:CreateToggle({
     CurrentValue = false,
     Flag = "SpeedBoostToggle",
     Callback = function(state)
-        speedBoostEnabled = state
-        local char = LP.Character
-
         if state then
-            if char then applySpeedBoost(char) end
+            enableSpeedBoost()
         else
-            if char then removeSpeedBoost(char) end
+            disableSpeedBoost()
         end
     end
 })
 
 SurvivorTab:CreateSlider({
     Name = "Speed Multiplier",
-    Range = {1.00, 2.00},
-    Increment = 0.01,
+    Range = {1.00, 3.00},
+    Increment = 0.15,
     Suffix = "x",
     CurrentValue = speedBoostValue,
     Flag = "SpeedBoostValue",
     Callback = function(v)
         speedBoostValue = v
-        if speedBoostEnabled and LP.Character then
-            applySpeedBoost(LP.Character)
+        if speedBoostEnabled then
+            applySpeedBoost()
         end
     end
 })
+
+SurvivorTab:CreateSection("Perfect SkillCheck Gen")
+
+
+
+SurvivorTab:CreateSection("Perfect SkillCheck Heal")
+
+
 
 local KillerTab = Window:CreateTab("Killers")
 KillerTab:CreateSection("Survivors")
