@@ -442,7 +442,7 @@ VisualTab:CreateColorPicker({
 refreshRoots()
 
 local SurvivorTab = Window:CreateTab("Survivors")
-KillerTab:CreateSection("Generator")
+SurvivorTab:CreateSection("Generator")
 
 local genBoostEnabled = false
 local genBoostValue = 1.00
