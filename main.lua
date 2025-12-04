@@ -239,7 +239,7 @@ Tab:CreateColorPicker({
 })
 
 Tab:CreateSlider({
-    Name = " Player Transparency",
+    Name = "Player Transparency",
     Range = {0, 1},
     Increment = 0.1,
     Suffix = "",
@@ -352,6 +352,17 @@ local function applyEnhancedGeneratorESP(entry)
         lbl.TextTransparency = generatorTextTransparency
         lbl.TextStrokeTransparency = generatorTextTransparency
     end
+end
+
+local generatorEnhancedLoopConn = nil
+local function startGeneratorEnhancedLoop()
+    if generatorEnhancedLoopConn then return end
+    generatorEnhancedLoopConn = RunService.Heartbeat:Connect(function()
+        if not generatorESPEnabled then return end
+        for _, entry in pairs(worldReg.Generator) do
+            applyEnhancedGeneratorESP(entry)
+        end
+    end)
 end
     -- Etiqueta de texto
     local textName = "VD_Text_Generator_Enhanced"
