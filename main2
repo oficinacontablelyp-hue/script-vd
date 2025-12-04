@@ -179,10 +179,8 @@ local function isInLobby(p)
     -- Verificar si está en un área de lobby
     local hrp = p.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
-        -- Puedes ajustar estas coordenadas según tu juego
         local pos = hrp.Position
-        -- Ejemplo: si está en coordenadas específicas del lobby
-        if pos.Y < -100 then -- Ajusta este valor
+        if pos.Y < -100 then
             return true
         end
     end
