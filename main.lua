@@ -618,7 +618,9 @@ Tab:CreateToggle({
   CurrentValue = false,
   Flag = "NoShadows",
   Callback = function(s) if s then nsEnable() else nsDisable() end
-})
+  end
+  
+  })
 
 -- Sección No Fog
 local nfActive = false
@@ -729,6 +731,7 @@ Tab:CreateToggle({
   CurrentValue = false,
   Flag = "NoFog",
   Callback = function(s) if s then nfEnable() else nfDisable() end
+    end
 })
 
 -- Cargar configuración y notificar
