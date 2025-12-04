@@ -522,6 +522,68 @@ SurvivorTab:CreateSlider({
     end
 })
 
+SurvivorTab:CreateSection("Speed Boost")
+
+local speedBoostEnabled = false
+local speedBoostValue = 1.00
+
+local function applySpeedBoost(char)
+    if not speedBoostEnabled then return end
+    if not (char and char:IsA("Model")) then return end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = 16 * speedBoostValue
+    end
+end
+
+local function removeSpeedBoost(char)
+    if not (char and char:IsA("Model")) then return end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = 16
+    end
+end
+
+LP.CharacterAdded:Connect(function(char)
+    task.wait(0.2)
+    if speedBoostEnabled then
+        applySpeedBoost(char)
+    end
+end)
+
+SurvivorTab:CreateToggle({
+    Name = "Enable Speed Boost",
+    CurrentValue = false,
+    Flag = "SpeedBoostToggle",
+    Callback = function(state)
+        speedBoostEnabled = state
+        local char = LP.Character
+
+        if state then
+            if char then applySpeedBoost(char) end
+        else
+            if char then removeSpeedBoost(char) end
+        end
+    end
+})
+
+SurvivorTab:CreateSlider({
+    Name = "Speed Multiplier",
+    Range = {1.00, 2.00},
+    Increment = 0.01,
+    Suffix = "x",
+    CurrentValue = speedBoostValue,
+    Flag = "SpeedBoostValue",
+    Callback = function(v)
+        speedBoostValue = v
+        if speedBoostEnabled and LP.Character then
+            applySpeedBoost(LP.Character)
+        end
+    end
+})
+
 local KillerTab = Window:CreateTab("Killers")
 KillerTab:CreateSection("Survivors")
 
