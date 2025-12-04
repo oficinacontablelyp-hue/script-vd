@@ -1,4 +1,5 @@
-   local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+-- LoreOnTop (corregido + optimizado)
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 -- Servicios de Roblox
 local Players = game:GetService("Players")
@@ -6,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
 local LP = Players.LocalPlayer
 
 -- Funciones auxiliares
@@ -123,6 +125,7 @@ local highlightOutlineTransparency = 0.2
 local textTransparency = 0.0
 local playerConns = {}
 local espLoopConn = nil
+local espLoopInterval = 0.12 -- throttle ESP loop to ~8-9 checks per second
 
 local function isSpectator(p)
     if not p then return false end
@@ -180,7 +183,7 @@ local function applyOnePlayerESP(p)
                 local text = p.Name
 
                 if showDistance
-                    and not isSpectate(p)
+                    and not isSpectator(p)
                     and hrp
                     and LP.Character
                     and LP.Character:FindFirstChild("HumanoidRootPart")
@@ -206,10 +209,15 @@ local function applyOnePlayerESP(p)
     end
 end
 
+-- Throttled ESP loop (reduces CPU compared to per-frame)
 local function startESPLoop()
     if espLoopConn then return end
-    espLoopConn = RunService.Heartbeat:Connect(function()
+    local acc = 0
+    espLoopConn = RunService.Heartbeat:Connect(function(dt)
         if not playerESPEnabled and not nametagsEnabled then return end
+        acc = acc + dt
+        if acc < espLoopInterval then return end
+        acc = 0
         for _, pl in ipairs(Players:GetPlayers()) do
             if pl ~= LP then applyOnePlayerESP(pl) end
         end
@@ -279,7 +287,7 @@ VisualTab:CreateSlider({
     Name = "Player Transparency",
     Range = {0, 1},
     Increment = 0.1,
-    CurrentValue = 0.5,
+    CurrentValue = highlightFillTransparency,
     Flag = "FillTrans",
     Callback = function(v) highlightFillTransparency = v end
 })
@@ -288,7 +296,7 @@ VisualTab:CreateSlider({
     Name = "Outline Transparency",
     Range = {0, 1},
     Increment = 0.1,
-    CurrentValue = 0.0,
+    CurrentValue = highlightOutlineTransparency,
     Flag = "OutlineTrans",
     Callback = function(v) highlightOutlineTransparency = v end
 })
@@ -297,7 +305,7 @@ VisualTab:CreateSlider({
     Name = "Text Transparency",
     Range = {0, 1},
     Increment = 0.1,
-    CurrentValue = 0.0,
+    CurrentValue = textTransparency,
     Flag = "TextTrans",
     Callback = function(v) textTransparency = v end
 })
@@ -389,7 +397,6 @@ local function applyEnhancedGeneratorESP(entry)
 
     local lbl = bb:FindFirstChild("Label")
     if lbl then
-      
         local progColor = colorFromProgress(t)
         lbl.Text = generatorTextPrefix .. math.floor(pct + 0.5) .. "%"
         lbl.TextColor3 = progColor
@@ -399,10 +406,15 @@ local function applyEnhancedGeneratorESP(entry)
 end
 
 local generatorEnhancedLoopConn = nil
+local genLoopInterval = 0.09 -- throttle generator loop
 local function startGeneratorEnhancedLoop()
     if generatorEnhancedLoopConn then return end
-    generatorEnhancedLoopConn = RunService.Heartbeat:Connect(function()
+    local acc = 0
+    generatorEnhancedLoopConn = RunService.Heartbeat:Connect(function(dt)
         if not generatorESPEnabled then return end
+        acc = acc + dt
+        if acc < genLoopInterval then return end
+        acc = 0
         for _, entry in pairs(worldReg.Generator) do
             applyEnhancedGeneratorESP(entry)
         end
@@ -441,6 +453,7 @@ VisualTab:CreateColorPicker({
 
 refreshRoots()
 
+-- SURVIVORS TAB (Generator Boost / Speed / Skillcheck toggles)
 local SurvivorTab = Window:CreateTab("Survivors")
 SurvivorTab:CreateSection("Generator")
 
@@ -450,60 +463,86 @@ local genBoostValue = 1.25
 local repairingGenerator = nil
 local repairConnection = nil
 
-local function detectGenerator()
+-- Use worldReg.Generator for finding nearby generator (much cheaper than scanning Workspace)
+local function detectGeneratorNearby(range)
     local char = LP.Character
     if not char then return nil end
-
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
-    
-    local closest = nil
-    local minDist = 10
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and (obj.Name == "Generator" or obj.Name == "Gen" or obj.Name:lower():find("gen")) then
-            local dist = (obj.Position - hrp.Position).Magnitude
-            if dist < minDist then
-                minDist = dist
-                closest = obj
+    local best = nil
+    local minDist = range or 10
+    for genObj, info in pairs(worldReg.Generator) do
+        if info and info.part and info.part.Parent then
+            local ok, pos = pcall(function() return info.part.Position end)
+            if ok and pos then
+                local d = (pos - hrp.Position).Magnitude
+                if d < minDist then
+                    minDist = d
+                    best = info.model or genObj
+                end
             end
         end
     end
-
-    return closest
+    return best
 end
 
+-- IMPORTANT: apply boost conservatively and only once when generator changes,
+-- avoid compounding values repeatedly.
+local appliedBoosts = setmetatable({}, {__mode = "k"})
 local function applyGenBoost(gen)
     if not (gen and genBoostEnabled) then return end
+    if appliedBoosts[gen] then return end
 
     for _, v in ipairs(gen:GetDescendants()) do
         if v:IsA("NumberValue") or v:IsA("IntValue") then
-            if v.Name:lower():find("repair") or v.Name:lower():find("progress") then
-                v.Value = v.Value * genBoostValue
+            local name = v.Name:lower()
+            if name:find("repair") or name:find("progress") then
+                -- store original value
+                local ok, orig = pcall(function() return v.Value end)
+                if ok then
+                    v:SetAttribute("vd_orig_value", orig)
+                    v.Value = orig * genBoostValue
+                end
             end
         end
     end
+    appliedBoosts[gen] = true
 end
 
 local function removeGenBoost(gen)
     if not gen then return end
+    if not appliedBoosts[gen] then return end
 
     for _, v in ipairs(gen:GetDescendants()) do
         if v:IsA("NumberValue") or v:IsA("IntValue") then
-            if v.Name:lower():find("repair") or v.Name:lower():find("progress") then
-                v.Value = 1
+            local name = v.Name:lower()
+            if name:find("repair") or name:find("progress") then
+                local ok, orig = pcall(function() return v:GetAttribute("vd_orig_value") end)
+                if ok and orig ~= nil then
+                    v.Value = orig
+                    v:SetAttribute("vd_orig_value", nil)
+                else
+                    -- fallback: reset to 1
+                    pcall(function() v.Value = 1 end)
+                end
             end
         end
     end
+    appliedBoosts[gen] = nil
 end
 
 local function startRepairWatcher()
     if repairConnection then return end
-
-    repairConnection = RunService.Heartbeat:Connect(function()
+    local acc = 0
+    local interval = 0.18 -- check ~5-6 times per second (adjustable)
+    repairConnection = RunService.Heartbeat:Connect(function(dt)
         if not genBoostEnabled then return end
+        acc = acc + dt
+        if acc < interval then return end
+        acc = 0
 
-        local gen = detectGenerator()
+        local gen = detectGeneratorNearby(10)
         if gen ~= repairingGenerator then
             if repairingGenerator then
                 removeGenBoost(repairingGenerator)
@@ -546,7 +585,7 @@ SurvivorTab:CreateToggle({
 SurvivorTab:CreateSlider({
     Name = "Repair Multiplier",
     Range = {1.00, 2.00},
-    Increment = 0.10,
+    Increment = 0.05,
     Suffix = "x",
     CurrentValue = genBoostValue,
     Flag = "GenBoostValue",
@@ -555,13 +594,11 @@ SurvivorTab:CreateSlider({
     end
 })
 
+-- Speed Boost section
 SurvivorTab:CreateSection("Speed Boost")
 
 local speedBoostEnabled = false
 local speedBoostValue = 1.25
-
-local Players = game:GetService("Players")
-local LP = Players.LocalPlayer
 
 local function applySpeedBoost(char)
     if not speedBoostEnabled then return end
@@ -569,7 +606,7 @@ local function applySpeedBoost(char)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
-        hum.WalkSpeed = 16 * speedBoostValue
+        pcall(function() hum.WalkSpeed = 16 * speedBoostValue end)
     end
 end
 
@@ -578,10 +615,11 @@ local function removeSpeedBoost(char)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
-        hum.WalkSpeed = 16
+        pcall(function() hum.WalkSpeed = 16 end)
     end
 end
 
+-- apply on spawn
 LP.CharacterAdded:Connect(function(char)
     task.wait(0.2)
     if speedBoostEnabled then
@@ -621,14 +659,154 @@ SurvivorTab:CreateSlider({
     end
 })
 
-SurvivorTab:CreateSection("Perfect SkillCheck Gen")
+-- SkillCheck Gen (Perfect) - throttled checks
+SurvivorTab:CreateSection("SkillCheck Gen")
 
+local perfectEnabled = false
+local perfectConn = nil
+local perfectInterval = 0.06
+local function findSkillcheckElements(gui)
+    local pointer, perfectZone, bar = nil, nil, nil
 
+    for _, obj in ipairs(gui:GetDescendants()) do
+        if obj:IsA("Frame") or obj:IsA("ImageLabel") then
+            local ok, size = pcall(function() return obj.AbsoluteSize end)
+            if not ok then size = Vector2.new(0,0) end
 
-SurvivorTab:CreateSection("Perfect SkillCheck Heal")
+            -- Barra: horizontal, larga
+            if size.X > 150 and size.Y < 80 and not bar then
+                bar = obj
+            end
 
+            -- Perfect zone: dentro de barra, más pequeño
+            if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < (bar.AbsoluteSize.X * 0.45) then
+                perfectZone = obj
+            end
 
+            -- Pointer: algo moviéndose (narrow width)
+            if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < math.max(8, bar.AbsoluteSize.X * 0.06) then
+                pointer = obj
+            end
+        end
+    end
 
+    return bar, perfectZone, pointer
+end
+
+local function enablePerfectLoop()
+    if perfectConn then return end
+    local acc = 0
+    perfectConn = RunService.Heartbeat:Connect(function(dt)
+        if not perfectEnabled then return end
+        acc = acc + dt
+        if acc < perfectInterval then return end
+        acc = 0
+
+        local pg = LP:FindFirstChild("PlayerGui")
+        if not pg then return end
+
+        for _, gui in ipairs(pg:GetChildren()) do
+            local ok, bar, zone, pointer = pcall(function() return findSkillcheckElements(gui) end)
+            if ok and bar and zone and pointer then
+                -- setear pointer EXACTAMENTE en el centro de la zona perfecta
+                local success, rel, percent = pcall(function()
+                    local relX = (zone.AbsolutePosition.X + (zone.AbsoluteSize.X / 2)) - bar.AbsolutePosition.X
+                    local perc = relX / bar.AbsoluteSize.X
+                    return relX, clamp(perc, 0, 1)
+                end)
+                if success and percent then
+                    pcall(function()
+                        if typeof(pointer.Position) == "UDim2" then
+                            pointer.Position = UDim2.new(percent, 0, pointer.Position.Y.Scale, pointer.Position.Y.Offset)
+                        elseif pointer:IsA("GuiObject") and pointer:GetAttribute and pointer:GetAttribute("Value") then
+                            -- improbable: placeholder if pointer uses Value property
+                            pointer:SetAttribute("Value", percent)
+                        elseif pointer.Value ~= nil then
+                            pointer.Value = percent
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+end
+
+local function disablePerfectLoop()
+    if perfectConn then
+        perfectConn:Disconnect()
+        perfectConn = nil
+    end
+end
+
+SurvivorTab:CreateToggle({
+    Name = "Enable Perfect Skillcheck Gen",
+    CurrentValue = false,
+    Callback = function(v)
+        perfectEnabled = v
+        if v then enablePerfectLoop() else disablePerfectLoop() end
+    end
+})
+
+-- No SkillCheck Gen (remove GUIs) - safer approach: store connection to disconnect
+SurvivorTab:CreateSection("No SkillCheck Gen")
+local noSkillEnabled = false
+local noSkillDescConn = nil
+
+local function isSkillObject(obj)
+    if not obj or not obj.Name then return false end
+    local n = obj.Name:lower()
+    if n:find("skill") or n:find("check") or n:find("skillcheck") then
+        return true
+    end
+    return false
+end
+
+local function hardDelete(obj)
+    pcall(function()
+        if obj:IsA("GuiObject") or obj:IsA("ScreenGui") then
+            obj:Destroy()
+        elseif obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            obj:Destroy()
+        end
+    end)
+end
+
+local function startNoSkill()
+    if noSkillEnabled then return end
+    noSkillEnabled = true
+
+    local pg = LP:FindFirstChild("PlayerGui")
+    if pg then
+        -- borrar existentes
+        for _, d in ipairs(pg:GetDescendants()) do
+            if isSkillObject(d) then hardDelete(d) end
+        end
+
+        -- borrar nuevos (store connection so we can stop later)
+        if noSkillDescConn then noSkillDescConn:Disconnect() noSkillDescConn = nil end
+        noSkillDescConn = pg.DescendantAdded:Connect(function(d)
+            if noSkillEnabled and isSkillObject(d) then hardDelete(d) end
+        end)
+    end
+end
+
+local function stopNoSkill()
+    noSkillEnabled = false
+    if noSkillDescConn then
+        noSkillDescConn:Disconnect()
+        noSkillDescConn = nil
+    end
+end
+
+SurvivorTab:CreateToggle({
+    Name = "Enable No Skillchecks Gen",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then startNoSkill() else stopNoSkill() end
+    end
+})
+
+-- KILLERS / GRAPHICS tabs kept minimal
 local KillerTab = Window:CreateTab("Killers")
 KillerTab:CreateSection("Survivors")
 
