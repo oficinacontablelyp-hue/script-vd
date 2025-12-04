@@ -98,9 +98,9 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false
 })
 
--- Crear pestaña ESP
-local Tab = Window:CreateTab("Visual")
-Tab:CreateSection("ESP")
+-- VISUAL TAB (Players + Generators)
+local VisualTab = Window:CreateTab("Visual")
+VisualTab:CreateSection("ESP")
 
 local function getRole(p)
     local tn = p.Team and p.Team.Name and p.Team.Name:lower() or ""
@@ -200,7 +200,7 @@ local function unwatchPlayer(p)
 end
 
 -- Toggles Player ESP
-Tab:CreateToggle({
+VisualTab:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
     Flag = "PlayerESP",
@@ -210,7 +210,7 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateToggle({
+VisualTab:CreateToggle({
     Name = "Names/Distance",
     CurrentValue = false,
     Flag = "Nametags",
@@ -220,21 +220,21 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateColorPicker({
+VisualTab:CreateColorPicker({
     Name = "Survivor Color",
     Color = survivorColor,
     Flag = "SurvivorCol",
     Callback = function(c) survivorColor = c end
 })
 
-Tab:CreateColorPicker({
+VisualTab:CreateColorPicker({
     Name = "Killer Color",
     Color = killerColor,
     Flag = "KillerCol",
     Callback = function(c) killerColor = c end
 })
 
-Tab:CreateSlider({
+VisualTab:CreateSlider({
     Name = "Player Transparency",
     Range = {0, 1},
     Increment = 0.1,
@@ -243,7 +243,7 @@ Tab:CreateSlider({
     Callback = function(v) highlightFillTransparency = v end
 })
 
-Tab:CreateSlider({
+VisualTab:CreateSlider({
     Name = "Outline Transparency",
     Range = {0, 1},
     Increment = 0.1,
@@ -252,7 +252,7 @@ Tab:CreateSlider({
     Callback = function(v) highlightOutlineTransparency = v end
 })
 
-Tab:CreateSlider({
+VisualTab:CreateSlider({
     Name = "Text Transparency",
     Range = {0, 1},
     Increment = 0.1,
@@ -266,12 +266,12 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= LP then watchPlayer(p) end e
 Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(unwatchPlayer)
 
---GENERATOR ESP
-
-Tab:CreateSection("Generators")
+-- GENERATOR ESP
+VisualTab:CreateSection("Generators")
 
 local generatorESPEnabled = false
 local generatorColor = Color3.fromRGB(0, 170, 255)
+local generatorTextPrefix = "Gen"
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
@@ -335,7 +335,7 @@ local function applyEnhancedGeneratorESP(entry)
 
     local lbl = bb:FindFirstChild("Label")
     if lbl then
-        lbl.Text = "Gen" .. math.floor(pct + 0.5) .. "%"
+        lbl.Text = generatorTextPrefix .. math.floor(pct + 0.5) .. "%"
         lbl.TextColor3 = dynamicCol
         lbl.TextTransparency = 0.7
         lbl.TextStrokeTransparency = 0.2
@@ -343,7 +343,6 @@ local function applyEnhancedGeneratorESP(entry)
 end
 
 local generatorEnhancedLoopConn = nil
-
 local function startGeneratorEnhancedLoop()
     if generatorEnhancedLoopConn then return end
     generatorEnhancedLoopConn = RunService.Heartbeat:Connect(function()
@@ -367,7 +366,7 @@ local function stopGeneratorEnhancedLoop()
     end
 end
 
-Tab:CreateToggle({
+VisualTab:CreateToggle({
     Name = "Generator ESP",
     CurrentValue = false,
     Flag = "GeneratorESP",
@@ -377,7 +376,7 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateColorPicker({
+VisualTab:CreateColorPicker({
     Name = "Generator Color",
     Color = generatorColor,
     Flag = "GenCol",
@@ -386,14 +385,16 @@ Tab:CreateColorPicker({
 
 refreshRoots()
 
+-- SURVIVORS & KILLERS tabs (kept as separate, empty sections to preserve layout)
 local SurvivorTab = Window:CreateTab("Survivors")
-Tab:CreateSection("Generators")
+SurvivorTab:CreateSection("Generators")
 
 local KillerTab = Window:CreateTab("Killers")
-Tab:CreateSection("Survivors")
+KillerTab:CreateSection("Survivors")
 
+-- GRAPHICS TAB (only visuals: No Fog, No Shadows)
 local GraphicsTab = Window:CreateTab("Graphics")
-Tab:CreateSection("Optimization")
+GraphicsTab:CreateSection("Optimization")
 
 -- Sección No Fog
 local nfActive = false
@@ -499,7 +500,7 @@ local function nfDisable()
     nfQueue, nfQueued = {}, setmetatable({}, {__mode = "k"})
 end
 
-Tab:CreateToggle({
+GraphicsTab:CreateToggle({
     Name = "No Fog",
     CurrentValue = false,
     Flag = "NoFog",
@@ -594,7 +595,7 @@ local function nsDisable()
     nsThread = nil
 end
 
-Tab:CreateToggle({
+GraphicsTab:CreateToggle({
     Name = "No Shadows",
     CurrentValue = false,
     Flag = "NoShadows",
