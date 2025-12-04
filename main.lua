@@ -239,7 +239,7 @@ Tab:CreateColorPicker({
 })
 
 Tab:CreateSlider({
-    Name = "Fill Transparency",
+    Name = " Player Transparency",
     Range = {0, 1},
     Increment = 0.1,
     Suffix = "",
