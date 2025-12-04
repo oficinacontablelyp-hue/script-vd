@@ -112,6 +112,8 @@ end
 -- Variables Player ESP
 local survivorColor = Color3.fromRGB(0, 255, 0)
 local killerColor = Color3.fromRGB(255, 0, 0)
+local spectatorColor = Color3.fromRGB(255, 255, 255)
+
 local playerESPEnabled = false
 local nametagsEnabled = false
 local showDistance = true
@@ -122,33 +124,68 @@ local textTransparency = 0.0
 local playerConns = {}
 local espLoopConn = nil
 
--- Aplicar ESP a Players
+-- Detectar si está espectando
+local function isSpectating(p)
+    -- No tiene character → espectador
+    if not p.Character then return true end
+
+    -- Humanoid muerto → espectador
+    local hum = p.Character:FindFirstChildWhichIsA("Humanoid")
+    if hum and hum.Health <= 0 then return true end
+
+    -- Atributo opcional del juego
+    if p:GetAttribute("Spectating") == true then return true end
+
+    return false
+end
+
+-- Aplicar ESP a un player
 local function applyOnePlayerESP(p)
     if p == LP then return end
     local c = p.Character
     if not (c and alive(c)) then return end
-    local role = getRole(p)
-    local col = (role == "Killer") and killerColor or survivorColor
+
+    -- Color según sea killer, survivor o espectador
+    local col
+    if isSpectating(p) then
+        col = spectatorColor
+    else
+        local role = getRole(p)
+        col = (role == "Killer") and killerColor or survivorColor
+    end
+
     local head = c:FindFirstChild("Head")
     local hrp = c:FindFirstChild("HumanoidRootPart")
 
     if playerESPEnabled then
+        -- Highlight
         local hl = ensureHighlight(c, col)
         if hl then
             hl.FillTransparency = highlightFillTransparency
             hl.OutlineTransparency = highlightOutlineTransparency
         end
+
+        -- Nametag
         if nametagsEnabled and validPart(head) then
             local tag = head:FindFirstChild("VD_Tag") or makeBillboard("", col)
             tag.Name = "VD_Tag"
             tag.Parent = head
+
             local l = tag:FindFirstChild("Label")
             if l then
                 local text = p.Name
-                if showDistance and hrp and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+
+                -- Distancia SOLO si no es espectador
+                if showDistance
+                    and not isSpectating(p)
+                    and hrp
+                    and LP.Character
+                    and LP.Character:FindFirstChild("HumanoidRootPart")
+                then
                     local d = math.floor(dist(hrp.Position, LP.Character.HumanoidRootPart.Position))
                     text = text .. " - " .. d .. "m"
                 end
+
                 l.Text = text
                 l.TextColor3 = col
                 l.TextTransparency = textTransparency
@@ -159,12 +196,14 @@ local function applyOnePlayerESP(p)
             if t then pcall(function() t:Destroy() end) end
         end
     else
+        -- ESP apagado → limpiar todo
         clearHighlight(c)
         local t = head and head:FindFirstChild("VD_Tag")
         if t then pcall(function() t:Destroy() end) end
     end
 end
 
+-- ESP Loop
 local function startESPLoop()
     if espLoopConn then return end
     espLoopConn = RunService.Heartbeat:Connect(function()
@@ -179,13 +218,26 @@ local function stopESPLoop()
     if espLoopConn then espLoopConn:Disconnect() espLoopConn = nil end
 end
 
+-- Watch players
 local function watchPlayer(p)
-    if playerConns[p] then for _, cn in ipairs(playerConns[p]) do cn:Disconnect() end end
+    if playerConns[p] then
+        for _, cn in ipairs(playerConns[p]) do
+            cn:Disconnect()
+        end
+    end
+
     playerConns[p] = {}
+
     table.insert(playerConns[p], p.CharacterAdded:Connect(function()
-        task.delay(0.15, function() applyOnePlayerESP(p) end)
+        task.delay(0.15, function()
+            applyOnePlayerESP(p)
+        end)
     end))
-    table.insert(playerConns[p], p:GetPropertyChangedSignal("Team"):Connect(function() applyOnePlayerESP(p) end))
+
+    table.insert(playerConns[p], p:GetPropertyChangedSignal("Team"):Connect(function()
+        applyOnePlayerESP(p)
+    end))
+
     if p.Character then applyOnePlayerESP(p) end
 end
 
@@ -193,9 +245,17 @@ local function unwatchPlayer(p)
     if p.Character then
         clearHighlight(p.Character)
         local head = p.Character:FindFirstChild("Head")
-        if head and head:FindFirstChild("VD_Tag") then pcall(function() head.VD_Tag:Destroy() end) end
+        if head and head:FindFirstChild("VD_Tag") then
+            pcall(function() head.VD_Tag:Destroy() end)
+        end
     end
-    if playerConns[p] then for _, cn in ipairs(playerConns[p]) do cn:Disconnect() end end
+
+    if playerConns[p] then
+        for _, cn in ipairs(playerConns[p]) do
+            cn:Disconnect()
+        end
+    end
+
     playerConns[p] = nil
 end
 
