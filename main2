@@ -277,13 +277,10 @@ Players.PlayerRemoving:Connect(unwatchPlayer)
 -- Sección para Generators
 Tab:CreateSection("Generators")
 
--- Variables para ESP de generators (añadido transparencia)
+-- Variables para ESP de generators
 local generatorESPEnabled = false
 local generatorColor = Color3.fromRGB(0, 170, 255)
 local generatorTextPrefix = "Gen"
-local generatorHighlightFillTransparency = 0.6
-local generatorHighlightOutlineTransparency = 0.2
-local generatorTextTransparency = 0.0
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
@@ -325,7 +322,7 @@ local function refreshRoots()
     end
 end
 
--- Función para aplicar ESP a generators
+-- Función para aplicar ESP a generators (fijado sin sliders)
 local function applyEnhancedGeneratorESP(entry)
     local model = entry.model
     local part = entry.part
@@ -334,8 +331,8 @@ local function applyEnhancedGeneratorESP(entry)
     local dynamicCol = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor
     local hl = ensureHighlight(model, dynamicCol)
     if hl then
-        hl.FillTransparency = generatorHighlightFillTransparency
-        hl.OutlineTransparency = generatorHighlightOutlineTransparency
+        hl.FillTransparency = 0.7  -- Fijado
+        hl.OutlineTransparency = 0.2  -- Fijado
     end
     local textName = "VD_Text_Generator_Enhanced"
     local bb = part:FindFirstChild(textName)
@@ -349,8 +346,8 @@ local function applyEnhancedGeneratorESP(entry)
         local txt = "Gen" .. math.floor(pct + 0.5) .. "%"
         lbl.Text = txt
         lbl.TextColor3 = dynamicCol
-        lbl.TextTransparency = generatorTextTransparency
-        lbl.TextStrokeTransparency = generatorTextTransparency
+        lbl.TextTransparency = 0.7
+        lbl.TextStrokeTransparency = 0.2
     end
 end
 
@@ -363,6 +360,16 @@ local function startGeneratorEnhancedLoop()
             applyEnhancedGeneratorESP(entry)
         end
     end)
+end
+
+local function stopGeneratorEnhancedLoop()
+    if generatorEnhancedLoopConn then generatorEnhancedLoopConn:Disconnect() generatorEnhancedLoopConn = nil end
+    for _, entry in pairs(worldReg.Generator) do
+        if entry.model then
+            clearHighlight(entry.model)
+            clearChild(entry.part, "VD_Text_Generator_Enhanced")
+        end
+    end
 end
     -- Etiqueta de texto
     local textName = "VD_Text_Generator_Enhanced"
@@ -416,36 +423,6 @@ Tab:CreateColorPicker({
     Color = generatorColor,
     Flag = "GenCol",
     Callback = function(c) generatorColor = c end
-})
-
-Tab:CreateSlider({
-    Name = "Generator Fill Transparency",
-    Range = {0, 1},
-    Increment = 0.1,
-    Suffix = "",
-    CurrentValue = 0.7,
-    Flag = "GenFillTrans",
-    Callback = function(v) generatorHighlightFillTransparency = v end
-})
-
-Tab:CreateSlider({
-    Name = "Generator Outline Transparency",
-    Range = {0, 1},
-    Increment = 0.1,
-    Suffix = "",
-    CurrentValue = 0.2,
-    Flag = "GenOutlineTrans",
-    Callback = function(v) generatorHighlightOutlineTransparency = v end
-})
-
-Tab:CreateSlider({
-    Name = "Generator Text Transparency",
-    Range = {0, 1},
-    Increment = 0.1,
-    Suffix = "",
-    CurrentValue = 0.0,
-    Flag = "GenTextTrans",
-    Callback = function(v) generatorTextTransparency = v end
 })
 
 -- Inicializar generators
