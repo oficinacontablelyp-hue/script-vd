@@ -91,16 +91,16 @@ end
 
 -- Crear la ventana principal
 local Window = Rayfield:CreateWindow({
-    Name = "ESP Suite",
-    LoadingTitle = "ESP Suite",
-    LoadingSubtitle = "by AI Assistant",
-    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
+    Name = "LoreOnTop",
+    LoadingTitle = "Violence district",
+    LoadingSubtitle = "BY Lorenzo",
+    ConfigurationSaving = {Enabled = false, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
 
 -- Crear pestaña ESP
-local TabESP = Window:CreateTab("ESP")
-TabESP:CreateSection("Players")
+local TabESP = Window:CreateTab("Visual")
+TabESP:CreateSection("ESP")
 
 -- Función para obtener el rol del jugador
 local function getRole(p)
@@ -196,7 +196,7 @@ end
 
 -- Toggles para ESP de players
 TabESP:CreateToggle({
-    Name = "Player ESP (Chams)",
+    Name = "Players ESP",
     CurrentValue = false,
     Flag = "PlayerESP",
     Callback = function(s)
@@ -206,7 +206,7 @@ TabESP:CreateToggle({
 })
 
 TabESP:CreateToggle({
-    Name = "Nametags (con distancia)",
+    Name = "Names",
     CurrentValue = false,
     Flag = "Nametags",
     Callback = function(s)
@@ -333,7 +333,7 @@ end
 
 -- Toggle para Generator ESP
 TabESP:CreateToggle({
-    Name = "Generator ESP (Glow)",
+    Name = "Generator ESP",
     CurrentValue = false,
     Flag = "GeneratorESP",
     Callback = function(s)
@@ -343,7 +343,7 @@ TabESP:CreateToggle({
 })
 
 TabESP:CreateColorPicker({
-    Name = "Generator Color (Base)",
+    Name = "Generator Color",
     Color = generatorColor,
     Flag = "GenCol",
     Callback = function(c) generatorColor = c end
