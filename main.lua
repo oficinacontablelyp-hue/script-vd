@@ -94,7 +94,7 @@ local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
     LoadingTitle = "Violence district",
     LoadingSubtitle = "BY Lorenzo",
-    ConfigurationSaving = {Enabled = false, FolderName = "ESP_Suite", FileName = "esp_config"},
+    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
 
@@ -260,8 +260,8 @@ end
 
 local function registerFromDescendant(obj)
     if not alive(obj) then return end
-    if obj:IsA("Model") and obj.Name == "Gen" then
-        ensureWorldEntry("Gen", obj)
+    if obj:IsA("Model") and obj.Name == "Generator" then
+        ensureWorldEntry("Generator", obj)
     end
 end
 
