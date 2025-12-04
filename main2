@@ -441,55 +441,72 @@ VisualTab:CreateColorPicker({
 
 refreshRoots()
 
--- SURVIVORS & KILLERS
 local SurvivorTab = Window:CreateTab("Survivors")
-SurvivorTab:CreateSection("Generator Boost")
+KillerTab:CreateSection("Generator")
 
 local genBoostEnabled = false
-local genBoostValue = 1.25
+local genBoostValue = 1.00
 
-local function applyGenBoost(char)
+local repairBoostConnection = nil
+
+local function applyGenBoost()
     if not genBoostEnabled then return end
-    if not (char and char:IsA("Model")) then return end
-    pcall(function()
-        char:SetAttribute("GenBoost", genBoostValue)
-    end)
+
+    if LP:GetAttribute("repairboost") ~= genBoostValue then
+        LP:SetAttribute("repairboost", genBoostValue)
+    end
 end
 
-local function removeGenBoost(char)
-    if not (char and char:IsA("Model")) then return end
-    pcall(function()
-        if char:GetAttribute("GenBoost") ~= nil then
-            char:SetAttribute("GenBoost", nil)
+
+local function enableWatcher()
+    if repairBoostConnection then
+        repairBoostConnection:Disconnect()
+    end
+
+    repairBoostConnection = LP:GetAttributeChangedSignal("repairboost"):Connect(function()
+        if genBoostEnabled then
+            task.wait() -- evita spam
+            applyGenBoost()
         end
     end)
 end
 
--- Aplicar si respawneas
-LP.CharacterAdded:Connect(function(char)
-    task.wait(0.2)
+local function enableGenBoost()
+    genBoostEnabled = true
+    applyGenBoost()
+    enableWatcher()
+end
+
+local function disableGenBoost()
+    genBoostEnabled = false
+    if repairBoostConnection then
+        repairBoostConnection:Disconnect()
+        repairBoostConnection = nil
+    end
+    -- Restaurar valor del juego
+    LP:SetAttribute("repairboost", 1)
+end
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
     if genBoostEnabled then
-        applyGenBoost(char)
+        applyGenBoost()
     end
 end)
 
--- Toggle ON/OFF
 SurvivorTab:CreateToggle({
     Name = "Enable Generator Boost",
     CurrentValue = false,
     Flag = "GenBoostToggle",
     Callback = function(state)
-        genBoostEnabled = state
-        local char = LP.Character
         if state then
-            if char then applyGenBoost(char) end
+            enableGenBoost()
         else
-            if char then removeGenBoost(char) end
+            disableGenBoost()
         end
     end
 })
 
--- Slider de fuerza del boost
 SurvivorTab:CreateSlider({
     Name = "Boost Multiplier",
     Range = {1.00, 2.00},
@@ -499,8 +516,8 @@ SurvivorTab:CreateSlider({
     Flag = "GenBoostValue",
     Callback = function(v)
         genBoostValue = v
-        if genBoostEnabled and LP.Character then
-            applyGenBoost(LP.Character)
+        if genBoostEnabled then
+            applyGenBoost()
         end
     end
 })
