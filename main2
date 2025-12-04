@@ -9,19 +9,19 @@ local LP = Players.LocalPlayer
 -- Variables ESP
 local playerESPEnabled = false
 local nametagsEnabled = false
-local showDistance = false -- Desactivado por defecto
+local showDistance = false
 local maxDistance = 500
 
 -- Colores
 local survivorColor = Color3.fromRGB(0, 255, 0)
 local killerColor = Color3.fromRGB(255, 0, 0)
 local spectatorColor = Color3.fromRGB(255, 255, 255)
-local lobbyColor = Color3.fromRGB(200, 200, 200) -- Color gris para jugadores en lobby
+local lobbyColor = Color3.fromRGB(200, 200, 200)
 
 -- Cache mejorado
 local playerCache = {}
 local connections = {}
-local espObjects = {} -- Para manejo centralizado de objetos ESP
+local espObjects = {}
 
 -- Funciones auxiliares
 local function alive(obj)
@@ -162,7 +162,7 @@ end
 -- Función para verificar espectador MEJORADA
 local function isSpectator(p)
     if not p then return true end
-    if not p.Character then return true end -- Sin personaje = espectador/lobby
+    if not p.Character then return true end
     
     local humanoid = p.Character:FindFirstChildOfClass("Humanoid")
     if humanoid and humanoid.Health <= 0 then return true end
@@ -208,7 +208,7 @@ end
 local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
     LoadingTitle = "Violence District",
-    LoadingSubtitle = "by Lore (ESP Mejorado)",
+    LoadingSubtitle = "Hecho por kcha abuelas3000",
     ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
