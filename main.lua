@@ -235,11 +235,12 @@ Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(unwatchPlayer)
 
 -- Sección para Generators
-Tab:CreateSection("Generators")
+TabESP:CreateSection("Generators")
 
 -- Variables para ESP de generators
 local generatorESPEnabled = false
 local generatorColor = Color3.fromRGB(0, 170, 255)  -- Azul
+local generatorTextPrefix = "Gen"  -- Prefijo personalizable para el texto
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
@@ -351,6 +352,15 @@ Tab:CreateColorPicker({
 
 -- Inicializar generators
 refreshRoots()
+
+local Tab = Window:CreateTab("Survivors")
+Tab:CreateSection("Generators")
+
+local Tab = Window:CreateTab("Killers")
+Tab:CreateSection("Survivors")
+
+local Tab = Window:CreateTab("Graphics")
+Tab:CreateSection("Optimization")
 
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
