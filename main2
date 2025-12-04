@@ -718,9 +718,12 @@ local function enablePerfectLoop()
                     pcall(function()
                         if typeof(pointer.Position) == "UDim2" then
                             pointer.Position = UDim2.new(percent, 0, pointer.Position.Y.Scale, pointer.Position.Y.Offset)
-                        elseif pointer:IsA("GuiObject") and pointer:GetAttribute and pointer:GetAttribute("Value") then
-                            -- improbable: placeholder if pointer uses Value property
-                            pointer:SetAttribute("Value", percent)
+                            
+                        elseif pointer:IsA("GuiObject") then
+                          if pointer:GetAttribute("Value") ~= nil then 
+                             pointer:SetAttribute("Value", percent)
+                          end
+                           
                         elseif pointer.Value ~= nil then
                             pointer.Value = percent
                         end
