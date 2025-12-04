@@ -99,8 +99,8 @@ local Window = Rayfield:CreateWindow({
 })
 
 -- Crear pestaña ESP
-local TabESP = Window:CreateTab("Visual")
-TabESP:CreateSection("ESP")
+local Tab = Window:CreateTab("Visual")
+Tab:CreateSection("ESP")
 
 -- Función para obtener el rol del jugador
 local function getRole(p)
@@ -195,7 +195,7 @@ local function unwatchPlayer(p)
 end
 
 -- Toggles para ESP de players
-TabESP:CreateToggle({
+Tab:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
     Flag = "PlayerESP",
@@ -205,7 +205,7 @@ TabESP:CreateToggle({
     end
 })
 
-TabESP:CreateToggle({
+Tab:CreateToggle({
     Name = "Names/Distance",
     CurrentValue = false,
     Flag = "Nametags",
@@ -215,14 +215,14 @@ TabESP:CreateToggle({
     end
 })
 
-TabESP:CreateColorPicker({
+Tab:CreateColorPicker({
     Name = "Survivor Color",
     Color = survivorColor,
     Flag = "SurvivorCol",
     Callback = function(c) survivorColor = c end
 })
 
-TabESP:CreateColorPicker({
+Tab:CreateColorPicker({
     Name = "Killer Color",
     Color = killerColor,
     Flag = "KillerCol",
@@ -235,12 +235,11 @@ Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(unwatchPlayer)
 
 -- Sección para Generators
-TabESP:CreateSection("Generators")
+Tab:CreateSection("Generators")
 
 -- Variables para ESP de generators
 local generatorESPEnabled = false
 local generatorColor = Color3.fromRGB(0, 170, 255)  -- Azul
-local generatorTextPrefix = "Gen"  -- Prefijo personalizable para el texto
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
@@ -333,7 +332,7 @@ local function stopGeneratorEnhancedLoop()
 end
 
 -- Toggle para Generator ESP
-TabESP:CreateToggle({
+Tab:CreateToggle({
     Name = "Generator ESP",
     CurrentValue = false,
     Flag = "GeneratorESP",
@@ -343,7 +342,7 @@ TabESP:CreateToggle({
     end
 })
 
-TabESP:CreateColorPicker({
+Tab:CreateColorPicker({
     Name = "Generator Color (Base)",
     Color = generatorColor,
     Flag = "GenCol",
