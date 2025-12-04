@@ -94,7 +94,7 @@ local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
     LoadingTitle = "Violence District",
     LoadingSubtitle = "by Lore",
-    ConfigurationSaving = {Enabled = false, FolderName = "ESP_Suite", FileName = "esp_config"},
+    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
 
@@ -111,12 +111,15 @@ local function getRole(p)
 end
 
 -- Variables para ESP de players
-local survivorColor = Color3.fromRGB(0, 255, 0)  -- Verde
-local killerColor = Color3.fromRGB(255, 0, 0)    -- Rojo
+local survivorColor = Color3.fromRGB(0, 255, 0)
+local killerColor = Color3.fromRGB(255, 0, 0)
 local playerESPEnabled = false
 local nametagsEnabled = false
-local showDistance = true  -- Siempre mostrar distancia
+local showDistance = true
 local maxDistance = 500
+local highlightFillTransparency = 0.5
+local highlightOutlineTransparency = 0.0
+local textTransparency = 0.0
 local playerConns = {}
 local espLoopConn = nil
 
@@ -131,7 +134,11 @@ local function applyOnePlayerESP(p)
     local hrp = c:FindFirstChild("HumanoidRootPart")
     
     if playerESPEnabled then
-        ensureHighlight(c, col)
+        local hl = ensureHighlight(c, col)
+        if hl then
+            hl.FillTransparency = highlightFillTransparency
+            hl.OutlineTransparency = highlightOutlineTransparency
+        end
         if nametagsEnabled and validPart(head) then
             local tag = head:FindFirstChild("VD_Tag") or makeBillboard("", col)
             tag.Name = "VD_Tag"
@@ -145,6 +152,8 @@ local function applyOnePlayerESP(p)
                 end
                 l.Text = text
                 l.TextColor3 = col
+                l.TextTransparency = textTransparency
+                l.TextStrokeTransparency = textTransparency
             end
         else
             local t = head and head:FindFirstChild("VD_Tag")
@@ -229,6 +238,37 @@ Tab:CreateColorPicker({
     Callback = function(c) killerColor = c end
 })
 
+Tab:CreateSlider({
+    Name = "Fill Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.5,
+    Flag = "HighlightFillTrans",
+    Callback = function(v) highlightFillTransparency = v end
+})
+
+Tab:CreateSlider({
+    Name = "Outline Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.0,
+    Flag = "HighlightOutlineTrans",
+    Callback = function(v) highlightOutlineTransparency = v end
+})
+
+Tab:CreateSlider({
+    Name = "Text Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.0,
+    Flag = "TextTrans",
+    Callback = function(v) textTransparency = v end
+})
+
+
 -- Inicializar ESP de players
 for _, p in ipairs(Players:GetPlayers()) do if p ~= LP then watchPlayer(p) end end
 Players.PlayerAdded:Connect(watchPlayer)
@@ -237,10 +277,13 @@ Players.PlayerRemoving:Connect(unwatchPlayer)
 -- Sección para Generators
 Tab:CreateSection("Generators")
 
--- Variables para ESP de generators
+-- Variables para ESP de generators (añadido transparencia)
 local generatorESPEnabled = false
-local generatorColor = Color3.fromRGB(0, 170, 255)  -- Azul
-local generatorTextPrefix = "Gen"  -- Prefijo personalizable para el texto
+local generatorColor = Color3.fromRGB(0, 170, 255)
+local generatorTextPrefix = "Gen"
+local generatorHighlightFillTransparency = 0.6
+local generatorHighlightOutlineTransparency = 0.2
+local generatorTextTransparency = 0.0
 local worldReg = {Generator = {}}
 local mapAdd, mapRem = {}, {}
 
@@ -282,19 +325,34 @@ local function refreshRoots()
     end
 end
 
--- Función para aplicar ESP a generators (usando Highlight para glow)
+-- Función para aplicar ESP a generators
 local function applyEnhancedGeneratorESP(entry)
     local model = entry.model
     local part = entry.part
     if not generatorESPEnabled or not alive(model) or not validPart(part) then return end
     local pct = genProgress(model)
-    local dynamicCol = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor  -- Azul si no completado, verde si completado
-    -- Usar Highlight para glow en el modelo
+    local dynamicCol = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor
     local hl = ensureHighlight(model, dynamicCol)
     if hl then
-        hl.FillTransparency = 0.7  -- Más transparente para glow
-        hl.OutlineTransparency = 0.2
+        hl.FillTransparency = generatorHighlightFillTransparency
+        hl.OutlineTransparency = generatorHighlightOutlineTransparency
     end
+    local textName = "VD_Text_Generator_Enhanced"
+    local bb = part:FindFirstChild(textName)
+    if not bb then
+        bb = makeBillboard("", dynamicCol)
+        bb.Name = textName
+        bb.Parent = part
+    end
+    local lbl = bb:FindFirstChild("Label")
+    if lbl then
+        local txt = "Gen" .. math.floor(pct + 0.5) .. "%"
+        lbl.Text = txt
+        lbl.TextColor3 = dynamicCol
+        lbl.TextTransparency = generatorTextTransparency
+        lbl.TextStrokeTransparency = generatorTextTransparency
+    end
+end
     -- Etiqueta de texto
     local textName = "VD_Text_Generator_Enhanced"
     local bb = part:FindFirstChild(textName)
@@ -309,7 +367,6 @@ local function applyEnhancedGeneratorESP(entry)
         lbl.Text = txt
         lbl.TextColor3 = dynamicCol
     end
-end
 
 local generatorEnhancedLoopConn = nil
 local function startGeneratorEnhancedLoop()
@@ -344,10 +401,40 @@ Tab:CreateToggle({
 })
 
 Tab:CreateColorPicker({
-    Name = "Generator Color (Base)",
+    Name = "Generator Color",
     Color = generatorColor,
     Flag = "GenCol",
     Callback = function(c) generatorColor = c end
+})
+
+Tab:CreateSlider({
+    Name = "Generator Fill Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.7,
+    Flag = "GenHighlightFillTrans",
+    Callback = function(v) generatorHighlightFillTransparency = v end
+})
+
+Tab:CreateSlider({
+    Name = "Generator Outline Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.2,
+    Flag = "GenHighlightOutlineTrans",
+    Callback = function(v) generatorHighlightOutlineTransparency = v end
+})
+
+Tab:CreateSlider({
+    Name = "Generator Text Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = 0.0,
+    Flag = "GenTextTrans",
+    Callback = function(v) generatorTextTransparency = v end
 })
 
 -- Inicializar generators
@@ -361,6 +448,94 @@ Tab:CreateSection("Survivors")
 
 local Tab = Window:CreateTab("Graphics")
 Tab:CreateSection("Optimization")
+
+-- Sección Simplify Materials
+local simplifyMaterialsEnabled = false
+local materialsStore = {}  -- Almacena el material original de cada parte
+local connections = {}  -- Para manejar eventos de partes nuevas
+
+-- Función para guardar el estado de materiales (solo las partes existentes)
+local function saveMaterialsState()
+    materialsStore = {}
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            materialsStore[part] = part.Material  -- Guarda solo el Material (sin tabla anidada para simplificar)
+            print("Guardado material de parte:", part.Name, "->", part.Material)
+        end
+    end
+end
+
+-- Función para aplicar simplificación (cambiar a Plastic)
+local function applySimplifyMaterials()
+    for part, _ in pairs(materialsStore) do
+        if part and part.Parent then
+            pcall(function()
+                part.Material = Enum.Material.Plastic
+                print("Simplificado parte:", part.Name, "a Plastic")
+            end)
+        end
+    end
+end
+
+-- Función para restaurar materiales originales
+local function restoreMaterialsState()
+    for part, originalMaterial in pairs(materialsStore) do
+        if part and part.Parent and originalMaterial then
+            pcall(function()
+                part.Material = originalMaterial
+                print("Restaurado parte:", part.Name, "a", originalMaterial)
+            end)
+        end
+    end
+end
+
+-- Función para simplificar partes nuevas (si se añaden dinámicamente)
+local function onDescendantAdded(descendant)
+    if simplifyMaterialsEnabled and descendant:IsA("BasePart") then
+        materialsStore[descendant] = descendant.Material  -- Guarda el original
+        pcall(function()
+            descendant.Material = Enum.Material.Plastic
+            print("Nueva parte simplificada:", descendant.Name)
+        end)
+    end
+end
+
+-- Función principal para activar/desactivar
+local function setSimplifyMaterials(state)
+    if state == simplifyMaterialsEnabled then return end  -- Evita acciones innecesarias
+    
+    if state then
+        simplifyMaterialsEnabled = true
+        saveMaterialsState()  -- Guarda estado inicial
+        applySimplifyMaterials()  -- Aplica simplificación
+        -- Conecta evento para partes nuevas
+        connections.DescendantAdded = Workspace.DescendantAdded:Connect(onDescendantAdded)
+        if Rayfield then
+            Rayfield:Notify({Title = "Simplify Materials", Content = "Enabled - Materials simplified for better performance", Duration = 4})
+        end
+        print("Simplify Materials habilitado")
+    else
+        simplifyMaterialsEnabled = false
+        restoreMaterialsState()  -- Restaura
+        -- Desconecta evento
+        if connections.DescendantAdded then
+            connections.DescendantAdded:Disconnect()
+            connections.DescendantAdded = nil
+        end
+        materialsStore = {}  -- Limpia la tabla
+        if Rayfield then
+            Rayfield:Notify({Title = "Simplify Materials", Content = "Disabled - Materials restored", Duration = 4})
+        end
+        print("Simplify Materials deshabilitado")
+    end
+end
+
+Tab:CreateToggle({
+    Name = "Simplify Materials",
+    CurrentValue = false,
+    Flag = "SimplifyMaterials",
+    Callback = function(s) setSimplifyMaterials(s) end
+})
 
 -- Sección No Fog
 local nfActive = false
