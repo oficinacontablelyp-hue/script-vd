@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 local LP = Players.LocalPlayer
 
 -- Funciones auxiliares
@@ -361,64 +362,6 @@ Tab:CreateSection("Survivors")
 local Tab = Window:CreateTab("Graphics")
 Tab:CreateSection("Optimization")
 
--- Sección Disable Visual Effects
-local disableEffectsEnabled = false
-local effectsStore = {}
-
-local function saveEffectsState()
-    effectsStore = {}
-    for _, eff in ipairs(Lighting:GetChildren()) do
-        if eff:IsA("BloomEffect") or eff:IsA("DepthOfFieldEffect") or eff:IsA("SunRaysEffect") or eff:IsA("ColorCorrectionEffect") then
-            effectsStore[eff] = {Enabled = eff.Enabled}
-        end
-    end
-    for _, eff in ipairs(Workspace:GetChildren()) do
-        if eff:IsA("BloomEffect") or eff:IsA("DepthOfFieldEffect") or eff:IsA("SunRaysEffect") or eff:IsA("ColorCorrectionEffect") then
-            effectsStore[eff] = {Enabled = eff.Enabled}
-        end
-    end
-end
-
-local function applyDisableEffects()
-    for eff, state in pairs(effectsStore) do
-        if eff and eff.Parent then
-            pcall(function() eff.Enabled = false end)
-        end
-    end
-end
-
-local function restoreEffectsState()
-    for eff, state in pairs(effectsStore) do
-        if eff and eff.Parent and state.Enabled ~= nil then
-            pcall(function() eff.Enabled = state.Enabled end)
-        end
-    end
-end
-
-local function setDisableEffects(state)
-    if state then
-        if not disableEffectsEnabled then
-            disableEffectsEnabled = true
-            saveEffectsState()
-            applyDisableEffects()
-            Rayfield:Notify({Title = "Disable Visual Effects", Content = "Enabled - Effects disabled for better performance", Duration = 4})
-        end
-    else
-        if disableEffectsEnabled then
-            disableEffectsEnabled = false
-            restoreEffectsState()
-            Rayfield:Notify({Title = "Disable Visual Effects", Content = "Disabled - Effects restored", Duration = 4})
-        end
-    end
-end
-
-Tab:CreateToggle({
-    Name = "Disable Visual Effects",
-    CurrentValue = false,
-    Flag = "DisableEffects",
-    Callback = function(s) setDisableEffects(s) end
-})
-
 -- Sección Simplify Materials
 local simplifyMaterialsEnabled = false
 local materialsStore = {}
@@ -471,153 +414,6 @@ Tab:CreateToggle({
     Flag = "SimplifyMaterials",
     Callback = function(s) setSimplifyMaterials(s) end
 })
-
--- Sección Low Lighting Quality
-local lowLightingEnabled = false
-local lightingStore = {}
-
-local function saveLightingState()
-    lightingStore = {
-        ShadowSoftness = Lighting:FindFirstChild("ShadowSoftness") and Lighting.ShadowSoftness or nil,
-        Technology = Lighting.Technology,
-        GlobalShadows = Lighting.GlobalShadows
-    }
-end
-
-local function applyLowLighting()
-    pcall(function()
-        Lighting.ShadowSoftness = 0
-        Lighting.Technology = Enum.Technology.Compatibility
-        Lighting.GlobalShadows = false
-    end)
-end
-
-local function restoreLightingState()
-    for k, v in pairs(lightingStore) do
-        pcall(function() if v ~= nil then Lighting[k] = v end end)
-    end
-end
-
-local function setLowLighting(state)
-    if state then
-        if not lowLightingEnabled then
-            lowLightingEnabled = true
-            saveLightingState()
-            applyLowLighting()
-            Rayfield:Notify({Title = "Low Lighting Quality", Content = "Enabled - Lighting optimized for performance", Duration = 4})
-        end
-    else
-        if lowLightingEnabled then
-            lowLightingEnabled = false
-            restoreLightingState()
-            Rayfield:Notify({Title = "Low Lighting Quality", Content = "Disabled - Lighting restored", Duration = 4})
-        end
-    end
-end
-
-Tab:CreateToggle({
-    Name = "Low Lighting Quality",
-    CurrentValue = false,
-    Flag = "LowLighting",
-    Callback = function(s) setLowLighting(s) end  -- Corregido: era setLowLighting(state), ahora es setLowLighting(s)
-})
-
--- Sección No Shadows
-local nsActive = false
-local nsStore = {lighting = {}, parts = setmetatable({}, {__mode = "k"}), conns = {}}
-local nsQueue, nsQueued, nsProcessed = {}, setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
-local nsSignal = Instance.new("BindableEvent")
-local nsBatchSize, nsTickDelay = 400, 0.02
-
-local function nsSaveLighting()
-    nsStore.lighting = {GlobalShadows = Lighting.GlobalShadows, Technology = Lighting.Technology}
-end
-
-local function nsApplyLighting()
-    pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.Technology = Enum.Technology.Compatibility
-    end)
-end
-
-local function nsRestoreLighting()
-    for k, v in pairs(nsStore.lighting or {}) do pcall(function() if v ~= nil then Lighting[k] = v end end) end
-end
-
-local function nsIsCandidate(o) return o and o:IsA("BasePart") end
-
-local function nsSavePart(p) if nsStore.parts[p] == nil then nsStore.parts[p] = {CastShadow = p.CastShadow} end end
-
-local function nsHandlePart(p) if nsProcessed[p] then return end nsProcessed[p] = true nsSavePart(p) pcall(function() p.CastShadow = false end) end
-
-local function nsEnqueue(o) if nsActive and nsIsCandidate(o) and not nsQueued[o] then nsQueued[o] = true table.insert(nsQueue, o) nsSignal:Fire() end end
-
-local function nsProcessQueue()
-    while nsActive do
-        if #nsQueue == 0 then nsSignal.Event:Wait() end
-        local c = 0
-        while nsActive and #nsQueue > 0 and c < nsBatchSize do
-            local o = table.remove(nsQueue, 1)
-            if o and o.Parent then nsHandlePart(o) end
-            c = c + 1
-        end
-        task.wait(nsTickDelay)
-    end
-end
-
-local function nsSoftRescan()
-    for _, root in ipairs({Workspace, Workspace:FindFirstChild("Map"), Workspace:FindFirstChild("Terrain")}) do
-        if root then for _, d in ipairs(root:GetDescendants()) do if nsIsCandidate(d) then nsEnqueue(d) end end end
-    end
-end
-
-local function nsBindWatchers()
-    local a = Workspace.DescendantAdded:Connect(function(d) if nsIsCandidate(d) then nsEnqueue(d) end end)
-    local b = Workspace.ChildAdded:Connect(function(ch) if ch.Name == "Map" or ch.Name == "Map1" then task.delay(0.2, nsSoftRescan) end end)
-    local c = RunService.Heartbeat:Connect(function()
-        local t = os.clock()
-        if t - nsLastSoft >= nsSoftRescanInterval then nsLastSoft = t nsSoftRescan() end
-    end)
-    table.insert(nsStore.conns, a)
-    table.insert(nsStore.conns, b)
-    table.insert(nsStore.conns, c)
-end
-
-local nsThread = nil
-local nsSoftRescanInterval, nsLastSoft = 6, 0
-
-local function nsEnable()
-    if nsActive then return end
-    nsActive = true
-    nsQueue, nsQueued, nsProcessed = {}, setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
-    nsSaveLighting()
-    nsApplyLighting()
-    nsSoftRescan()
-    nsBindWatchers()
-    if not nsThread then nsThread = task.spawn(nsProcessQueue) end
-end
-
-local function nsDisable()
-    if not nsActive then return end
-    nsActive = false
-    for p, st in pairs(nsStore.parts) do if p and p.Parent and st and st.CastShadow ~= nil then pcall(function() p.CastShadow = st.CastShadow end) end end
-    nsStore.parts = setmetatable({}, {__mode = "k"})
-    for _, c in ipairs(nsStore.conns) do pcall(function() c:Disconnect() end) end
-    nsStore.conns = {}
-    nsRestoreLighting()
-    nsQueue, nsQueued, nsProcessed = {}, setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
-    nsSignal:Fire()
-    nsThread = nil
-end
-
-Tab:CreateToggle({
-  Name = "No Shadows",
-  CurrentValue = false,
-  Flag = "NoShadows",
-  Callback = function(s) if s then nsEnable() else nsDisable() end
-  end
-  
-  })
 
 -- Sección No Fog
 local nfActive = false
@@ -724,13 +520,107 @@ local function nfDisable()
 end
 
 Tab:CreateToggle({
-  Name = "No Fog",
-  CurrentValue = false,
-  Flag = "NoFog",
-  Callback = function(s) if s then nfEnable() else nfDisable() end
+    Name = "No Fog",
+    CurrentValue = false,
+    Flag = "NoFog",
+    Callback = function(s) if s then nfEnable() else nfDisable() end end
+})
+
+-- Sección No Shadows
+local nsActive = false
+local nsStore = {lighting = {}, parts = setmetatable({}, {__mode = "k"}), conns = {}}
+local nsQueue, nsQueued, nsProcessed = {}, setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
+local nsSignal = Instance.new("BindableEvent")
+local nsBatchSize, nsTickDelay = 400, 0.02
+
+local function nsSaveLighting()
+    nsStore.lighting = {GlobalShadows = Lighting.GlobalShadows, Technology = Lighting.Technology}
+end
+
+local function nsApplyLighting()
+    pcall(function()
+        Lighting.GlobalShadows = false
+        Lighting.Technology = Enum.Technology.Compatibility
+    end)
+end
+
+local function nsRestoreLighting()
+    for k, v in pairs(nsStore.lighting or {}) do pcall(function() if v ~= nil then Lighting[k] = v end end) end
+end
+
+local function nsIsCandidate(o) return o and o:IsA("BasePart") end
+
+local function nsSavePart(p) if nsStore.parts[p] == nil then nsStore.parts[p] = {CastShadow = p.CastShadow} end end
+
+local function nsHandlePart(p) if nsProcessed[p] then return end nsProcessed[p] = true nsSavePart(p) pcall(function() p.CastShadow = false end) end
+
+local function nsEnqueue(o) if nsActive and nsIsCandidate(o) and not nsQueued[o] then nsQueued[o] = true table.insert(nsQueue, o) nsSignal:Fire() end end
+
+local function nsProcessQueue()
+    while nsActive do
+        if #nsQueue == 0 then nsSignal.Event:Wait() end
+        local c = 0
+        while nsActive and #nsQueue > 0 and c < nsBatchSize do
+            local o = table.remove(nsQueue, 1)
+            if o and o.Parent then nsHandlePart(o) end
+            c = c + 1
+        end
+        task.wait(nsTickDelay)
     end
+end
+
+local function nsSoftRescan()
+    for _, root in ipairs({Workspace, Workspace:FindFirstChild("Map"), Workspace:FindFirstChild("Terrain")}) do
+        if root then for _, d in ipairs(root:GetDescendants()) do if nsIsCandidate(d) then nsEnqueue(d) end end end
+    end
+end
+
+local function nsBindWatchers()
+    local a = Workspace.DescendantAdded:Connect(function(d) if nsIsCandidate(d) then nsEnqueue(d) end end)
+    local b = Workspace.ChildAdded:Connect(function(ch) if ch.Name == "Map" or ch.Name == "Map1" then task.delay(0.2, nsSoftRescan) end end)
+    local c = RunService.Heartbeat:Connect(function()
+        local t = os.clock()
+        if t - nsLastSoft >= nsSoftRescanInterval then nsLastSoft = t nsSoftRescan() end
+    end)
+    table.insert(nsStore.conns, a)
+    table.insert(nsStore.conns, b)
+    table.insert(nsStore.conns, c)
+end
+
+local nsThread = nil
+local nsSoftRescanInterval, nsLastSoft = 6, 0
+
+local function nsEnable()
+    if nsActive then return end
+    nsActive = true
+    nsQueue, nsQueued, nsProcessed = {}, setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
+    nsSaveLighting()
+    nsApplyLighting()
+    nsSoftRescan()
+    nsBindWatchers()
+    if not nsThread then nsThread = task.spawn(nsProcessQueue) end
+end
+
+local function nsDisable()
+    if not nsActive then return end
+    nsActive = false
+    for p, st in pairs(nsStore.parts) do if p and p.Parent and st and st.CastShadow ~= nil then pcall(function() p.CastShadow = st.CastShadow end) end end
+    nsStore.parts = setmetatable({}, {__mode = "k"})
+    for _, c in ipairs(nsStore.conns) do pcall(function() c:Disconnect() end) end
+    nsStore.conns = {}
+    nsRestoreLighting()
+    nsQueue, nsQueued, nsProcessed = {}, setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
+    nsSignal:Fire()
+    nsThread = nil
+end
+
+Tab:CreateToggle({
+    Name = "No Shadows",
+    CurrentValue = false,
+    Flag = "NoShadows",
+    Callback = function(s) if s then nsEnable() else nsDisable() end end
 })
 
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title = "ESP Suite", Content = "Loaded", Duration = 6})
+Rayfield:Notify({Title = "LoreOnTop", Content = "Loaded", Duration = 6})
