@@ -192,16 +192,14 @@ end
 
 -- Función para obtener color MEJORADA
 local function getPlayerColor(p)
-    if isSpectator(p) then
-        return spectatorColor
-    elseif isInLobby(p) then
+    if isInLobby(p) then
         return lobbyColor
+    elseif isSpectator(p) then
+        return spectatorColor
     elseif getRole(p) == "Killer" then
         return killerColor
-    elseif getRole(p) == "Survivor" then
-        return survivorColor
     else
-        return lobbyColor
+      return survivorColor
     end
 end
 
@@ -269,7 +267,7 @@ local function applyOnePlayerESP(p)
             local text = p.Name
             
             -- Añadir distancia si está habilitado
-            if showDistance and not isSpectator(p) and hrp and LP.Character then
+            if showDistance and not isSpectator(p) and not isInLobby(p) and hrp and LP.Character then
                 local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
                 if myHrp then
                     local distance = math.floor(dist(hrp.Position, myHrp.Position))
