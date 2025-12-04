@@ -94,7 +94,7 @@ local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
     LoadingTitle = "Violence District",
     LoadingSubtitle = "by Lore",
-    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
+    ConfigurationSaving = {Enabled = false, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
 
