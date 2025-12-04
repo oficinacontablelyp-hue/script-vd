@@ -735,4 +735,4 @@ end
 
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
-Rayfield:Notify({Title = "ESP Suite", Content = "Loaded", Duration = 6})
+Rayfield:Notify({Title = "LoreOnTop", Content = "Loaded", Duration = 6})
