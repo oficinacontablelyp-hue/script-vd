@@ -91,10 +91,10 @@ end
 
 -- Crear la ventana principal
 local Window = Rayfield:CreateWindow({
-    Name = "LoreOnTop",
-    LoadingTitle = "Mod Violence District",
-    LoadingSubtitle = "By lorenzo",
-    ConfigurationSaving = {Enabled = false, FolderName = "ESP_Suite", FileName = "esp_config"},
+    Name = "ESP Suite",
+    LoadingTitle = "ESP Suite",
+    LoadingSubtitle = "by AI Assistant",
+    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
 
@@ -281,26 +281,20 @@ local function refreshRoots()
     end
 end
 
--- Función para aplicar ESP a generators
+-- Función para aplicar ESP a generators (usando Highlight para glow)
 local function applyEnhancedGeneratorESP(entry)
     local model = entry.model
     local part = entry.part
     if not generatorESPEnabled or not alive(model) or not validPart(part) then return end
     local pct = genProgress(model)
-    local dynamicCol = (pct >= 100) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)  -- Verde si completado, rojo si no
-    local adornName = "VD_Generator_Enhanced"
-    local a = part:FindFirstChild(adornName)
-    if not a then
-        a = Instance.new("BoxHandleAdornment")
-        a.Name = adornName
-        a.Adornee = part
-        a.ZIndex = 10
-        a.AlwaysOnTop = true
-        a.Transparency = 0.3
-        a.Size = part.Size + Vector3.new(0.5, 0.5, 0.5)
-        a.Parent = part
+    local dynamicCol = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor  -- Azul si no completado, verde si completado
+    -- Usar Highlight para glow en el modelo
+    local hl = ensureHighlight(model, dynamicCol)
+    if hl then
+        hl.FillTransparency = 0.7  -- Más transparente para glow
+        hl.OutlineTransparency = 0.2
     end
-    a.Color3 = dynamicCol
+    -- Etiqueta de texto
     local textName = "VD_Text_Generator_Enhanced"
     local bb = part:FindFirstChild(textName)
     if not bb then
@@ -330,8 +324,8 @@ end
 local function stopGeneratorEnhancedLoop()
     if generatorEnhancedLoopConn then generatorEnhancedLoopConn:Disconnect() generatorEnhancedLoopConn = nil end
     for _, entry in pairs(worldReg.Generator) do
-        if entry.part then
-            clearChild(entry.part, "VD_Generator_Enhanced")
+        if entry.model then
+            clearHighlight(entry.model)
             clearChild(entry.part, "VD_Text_Generator_Enhanced")
         end
     end
@@ -339,7 +333,7 @@ end
 
 -- Toggle para Generator ESP
 TabESP:CreateToggle({
-    Name = "Generator ESP",
+    Name = "Generator ESP (Glow)",
     CurrentValue = false,
     Flag = "GeneratorESP",
     Callback = function(s)
@@ -360,3 +354,4 @@ refreshRoots()
 
 -- Cargar configuración y notificar
 Rayfield:LoadConfiguration()
+Rayfield:Notify({Title = "ESP Suite", Content = "Loaded", Duration = 6})
