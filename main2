@@ -1,31 +1,27 @@
--- LoreOnTop (COMPLETO Y FUNCIONAL)
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 -- Servicios
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local Lighting = game:GetService("Lighting")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
 local LP = Players.LocalPlayer
 
--- Variables globales
+-- Variables ESP
 local playerESPEnabled = false
 local nametagsEnabled = false
-local showDistance = true
+local showDistance = false -- Desactivado por defecto
 local maxDistance = 500
 
 -- Colores
 local survivorColor = Color3.fromRGB(0, 255, 0)
 local killerColor = Color3.fromRGB(255, 0, 0)
 local spectatorColor = Color3.fromRGB(255, 255, 255)
-local generatorColor = Color3.fromRGB(0, 170, 255)
+local lobbyColor = Color3.fromRGB(200, 200, 200) -- Color gris para jugadores en lobby
 
--- Cache para optimización
+-- Cache mejorado
 local playerCache = {}
-local generatorCache = {}
 local connections = {}
+local espObjects = {} -- Para manejo centralizado de objetos ESP
 
 -- Funciones auxiliares
 local function alive(obj)
@@ -57,16 +53,26 @@ local function firstBasePart(inst)
     return nil
 end
 
+-- Billboard optimizado
 local function makeBillboard(text, color3, parent)
     if not parent then return nil end
     
-    local existing = parent:FindFirstChild("VD_Tag")
+    -- Verificar si ya existe
+    local existing = parent:FindFirstChild("ESP_Tag")
     if existing then
-        existing:Destroy()
+        -- Actualizar existente en lugar de destruir
+        local label = existing:FindFirstChild("Label")
+        if label then
+            label.Text = text
+            label.TextColor3 = color3
+        end
+        existing.Enabled = true
+        return existing
     end
     
+    -- Crear nuevo
     local g = Instance.new("BillboardGui")
-    g.Name = "VD_Tag"
+    g.Name = "ESP_Tag"
     g.AlwaysOnTop = true
     g.Size = UDim2.new(0, 200, 0, 36)
     g.StudsOffset = Vector3.new(0, 3, 0)
@@ -85,17 +91,21 @@ local function makeBillboard(text, color3, parent)
     l.TextStrokeColor3 = Color3.new(0, 0, 0)
     l.Parent = g
     
+    -- Registrar para limpieza
+    table.insert(espObjects, g)
+    
     return g
 end
 
+-- Highlight optimizado
 local function ensureHighlight(model, color)
     if not (model and model:IsA("Model") and alive(model)) then return nil end
     
-    local hl = model:FindFirstChild("VD_HL")
+    local hl = model:FindFirstChild("ESP_Highlight")
     if not hl then
         local success, result = pcall(function()
             local h = Instance.new("Highlight")
-            h.Name = "VD_HL"
+            h.Name = "ESP_Highlight"
             h.Adornee = model
             h.FillTransparency = 0.5
             h.OutlineTransparency = 0.2
@@ -105,7 +115,12 @@ local function ensureHighlight(model, color)
             h.Parent = model
             return h
         end)
-        if success then hl = result else return nil end
+        if success then 
+            hl = result
+            table.insert(espObjects, hl)
+        else 
+            return nil 
+        end
     else
         hl.FillColor = color
         hl.OutlineColor = color
@@ -117,39 +132,83 @@ local function ensureHighlight(model, color)
 end
 
 local function clearHighlight(model)
-    if model and model:FindFirstChild("VD_HL") then
-        pcall(function() model.VD_HL:Destroy() end)
-    end
-end
-
--- Función para obtener rol
-local function getRole(p)
-    local team = p.Team
-    if team then
-        local teamName = team.Name:lower()
-        if teamName:find("killer") then
-            return "Killer"
-        elseif teamName:find("survivor") then
-            return "Survivor"
+    if model and model:FindFirstChild("ESP_Highlight") then
+        local hl = model.ESP_Highlight
+        hl:Destroy()
+        -- Remover de la lista
+        for i, obj in ipairs(espObjects) do
+            if obj == hl then
+                table.remove(espObjects, i)
+                break
+            end
         end
     end
-    return "Survivor"
 end
 
--- Función para verificar espectador
+-- Función para obtener rol MEJORADA
+local function getRole(p)
+    if not p then return "Lobby" end
+    local team = p.Team
+    if not team then return "Lobby" end
+    local teamName = team.Name:lower()
+    if teamName:find("killer") then
+        return "Killer"
+    elseif teamName:find("survivor") then
+        return "Survivor"
+    end
+    return "Lobby"
+end
+
+-- Función para verificar espectador MEJORADA
 local function isSpectator(p)
-    if not p or not p.Character then return true end
-    local hum = p.Character:FindFirstChildWhichIsA("Humanoid")
-    if hum and hum.Health <= 0 then return true end
-    if p:GetAttribute("Spectator") == true then return true end
-    return false
+    if not p then return true end
+    if not p.Character then return true end -- Sin personaje = espectador/lobby
+    
+    local humanoid = p.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.Health <= 0 then return true end
+    
+    return p:GetAttribute("Spectator") == true
+end
+
+-- Función para determinar si está en lobby
+local function isInLobby(p)
+    if not p then return true end
+    if not p.Character then return true end
+    
+    -- Verificar si está en un área de lobby
+    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        -- Puedes ajustar estas coordenadas según tu juego
+        local pos = hrp.Position
+        -- Ejemplo: si está en coordenadas específicas del lobby
+        if pos.Y < -100 then -- Ajusta este valor
+            return true
+        end
+    end
+    
+    return getRole(p) == "Lobby"
+end
+
+-- Función para obtener color MEJORADA
+local function getPlayerColor(p)
+    if isSpectator(p) then
+        return spectatorColor
+    elseif isInLobby(p) then
+        return lobbyColor
+    elseif getRole(p) == "Killer" then
+        return killerColor
+    elseif getRole(p) == "Survivor" then
+        return survivorColor
+    else
+        return lobbyColor
+    end
 end
 
 -- Crear ventana principal
 local Window = Rayfield:CreateWindow({
     Name = "LoreOnTop",
     LoadingTitle = "Violence District",
-    LoadingSubtitle = "by Lore",
+    LoadingSubtitle = "by Lore (ESP Mejorado)",
     ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
     KeySystem = false
 })
@@ -158,109 +217,149 @@ local Window = Rayfield:CreateWindow({
 local VisualTab = Window:CreateTab("Visual")
 VisualTab:CreateSection("ESP")
 
--- Aplicar ESP a un jugador
+-- Función para limpiar ESP de un jugador
+local function cleanPlayerESP(p)
+    if not p then return end
+    
+    if p.Character then
+        clearHighlight(p.Character)
+        local head = p.Character:FindFirstChild("Head")
+        if head and head:FindFirstChild("ESP_Tag") then
+            head.ESP_Tag:Destroy()
+        end
+    end
+    
+    if playerCache[p] then
+        playerCache[p] = nil
+    end
+end
+
+-- Aplicar ESP a un jugador (MEJORADA)
 local function applyOnePlayerESP(p)
     if p == LP then return end
     
-    local c = p.Character
-    if not (c and alive(c)) then
-        -- Limpiar si no tiene personaje
-        if playerCache[p] then
-            if playerCache[p].highlight then
-                clearHighlight(c)
-            end
-            if playerCache[p].head and playerCache[p].head:FindFirstChild("VD_Tag") then
-                playerCache[p].head.VD_Tag:Destroy()
-            end
-        end
+    local character = p.Character
+    if not (character and alive(character)) then
+        cleanPlayerESP(p)
         return
     end
     
-    -- Determinar color
-    local col
-    if isSpectator(p) then
-        col = spectatorColor
-    else
-        local role = getRole(p)
-        if role == "Killer" then
-            col = killerColor
-        else
-            col = survivorColor
-        end
-    end
+    -- Obtener color
+    local color = getPlayerColor(p)
     
-    local head = c:FindFirstChild("Head")
-    local hrp = c:FindFirstChild("HumanoidRootPart")
+    local head = character:FindFirstChild("Head")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
     
     -- Aplicar ESP
-    if playerESPEnabled then
-        -- Highlight
-        local hl = ensureHighlight(c, col)
-        if hl then
-            hl.FillTransparency = 0.5
-            hl.OutlineTransparency = 0.2
+    if playerESPEnabled or nametagsEnabled then
+        -- Highlight (solo si playerESPEnabled está activado)
+        if playerESPEnabled then
+            local hl = ensureHighlight(character, color)
+            if hl then
+                hl.Enabled = true
+            end
+        else
+            -- Desactivar highlight si no está activado
+            clearHighlight(character)
         end
         
-        -- Nametag
+        -- Nametag (solo si nametagsEnabled está activado)
         if nametagsEnabled and validPart(head) then
             local text = p.Name
             
+            -- Añadir distancia si está habilitado
             if showDistance and not isSpectator(p) and hrp and LP.Character then
                 local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
                 if myHrp then
-                    local d = math.floor(dist(hrp.Position, myHrp.Position))
-                    if d <= maxDistance then
-                        text = text .. " - " .. d .. "m"
+                    local distance = math.floor(dist(hrp.Position, myHrp.Position))
+                    if distance <= maxDistance then
+                        text = text .. " - " .. distance .. "m"
                     end
                 end
             end
             
-            local tag = makeBillboard(text, col, head)
+            -- Crear o actualizar nametag
+            local tag = makeBillboard(text, color, head)
             if tag then
                 tag.Enabled = true
             end
-            
-            -- Guardar en cache
-            if not playerCache[p] then playerCache[p] = {} end
-            playerCache[p].head = head
-            playerCache[p].highlight = hl
-        else
-            -- Limpiar nametag si está desactivado
-            if head and head:FindFirstChild("VD_Tag") then
-                head.VD_Tag:Destroy()
-            end
+        elseif head and head:FindFirstChild("ESP_Tag") then
+            -- Desactivar nametag si no está activado
+            head.ESP_Tag.Enabled = false
         end
+        
+        -- Guardar en cache
+        if not playerCache[p] then 
+            playerCache[p] = {
+                lastUpdate = tick(),
+                character = character
+            }
+        end
+        playerCache[p].lastUpdate = tick()
     else
-        -- Limpiar todo si ESP está desactivado
-        clearHighlight(c)
-        if head and head:FindFirstChild("VD_Tag") then
-            head.VD_Tag:Destroy()
-        end
+        -- Limpiar todo si ambos están desactivados
+        cleanPlayerESP(p)
     end
 end
 
--- Loop de ESP optimizado
+-- Loop de ESP MEJORADO
 local espLoopConn = nil
 local lastESPUpdate = 0
-local ESP_UPDATE_INTERVAL = 0.15
+local ESP_UPDATE_INTERVAL = 0.1 -- Más rápido (100ms)
+
+-- Sistema de actualización por lotes
+local updateQueue = {}
+local isProcessing = false
+
+local function processUpdateQueue()
+    if isProcessing then return end
+    isProcessing = true
+    
+    -- Procesar máximo 5 jugadores por frame para mejor rendimiento
+    local processed = 0
+    local maxPerFrame = 5
+    
+    while #updateQueue > 0 and processed < maxPerFrame do
+        local player = table.remove(updateQueue, 1)
+        if player and player.Parent then
+            applyOnePlayerESP(player)
+            processed = processed + 1
+        end
+    end
+    
+    isProcessing = false
+end
 
 local function startESPLoop()
-    if espLoopConn then return end
+    if espLoopConn then 
+        espLoopConn:Disconnect()
+        espLoopConn = nil
+    end
     
     espLoopConn = RunService.Heartbeat:Connect(function(deltaTime)
         if not (playerESPEnabled or nametagsEnabled) then return end
         
         -- Control de intervalo
         local now = tick()
-        if now - lastESPUpdate < ESP_UPDATE_INTERVAL then return end
+        if now - lastESPUpdate < ESP_UPDATE_INTERVAL then 
+            -- Procesar cola mientras espera
+            processUpdateQueue()
+            return 
+        end
         lastESPUpdate = now
         
-        -- Aplicar ESP a todos los jugadores
+        -- Limpiar cola vieja
+        updateQueue = {}
+        
+        -- Añadir todos los jugadores a la cola
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LP then
-                applyOnePlayerESP(player)
+                table.insert(updateQueue, player)
             end
         end
+        
+        -- Procesar primer lote inmediatamente
+        processUpdateQueue()
     end)
 end
 
@@ -270,65 +369,91 @@ local function stopESPLoop()
         espLoopConn = nil
     end
     
-    -- Limpiar todo el ESP
+    -- Limpiar todo el ESP inmediatamente
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP and player.Character then
-            clearHighlight(player.Character)
-            local head = player.Character:FindFirstChild("Head")
-            if head and head:FindFirstChild("VD_Tag") then
-                head.VD_Tag:Destroy()
-            end
+        if player ~= LP then
+            cleanPlayerESP(player)
         end
     end
+    
+    -- Limpiar objetos ESP residuales
+    for _, obj in ipairs(espObjects) do
+        if obj and obj.Parent then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+    espObjects = {}
     playerCache = {}
+    updateQueue = {}
 end
 
--- Observadores de jugadores
+-- Función para forzar actualización de todos los jugadores
+local function forceUpdateAllPlayers()
+    if not (playerESPEnabled or nametagsEnabled) then return end
+    
+    updateQueue = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP then
+            table.insert(updateQueue, player)
+            applyOnePlayerESP(player) -- Aplicar inmediatamente
+        end
+    end
+end
+
+-- Observadores de jugadores MEJORADOS
 local function watchPlayer(p)
     if p == LP then return end
+    if connections[p] then return end -- Ya está siendo observado
     
-    local conns = {}
+    local playerConns = {}
     
-    -- Conectar eventos
-    table.insert(conns, p.CharacterAdded:Connect(function()
-        task.wait(0.5)
-        applyOnePlayerESP(p)
+    -- Conectar eventos con respuesta inmediata
+    table.insert(playerConns, p.CharacterAdded:Connect(function(character)
+        task.wait(0.3) -- Menos espera
+        if playerESPEnabled or nametagsEnabled then
+            applyOnePlayerESP(p)
+        end
     end))
     
-    table.insert(conns, p:GetPropertyChangedSignal("Team"):Connect(function()
-        applyOnePlayerESP(p)
+    table.insert(playerConns, p:GetPropertyChangedSignal("Team"):Connect(function()
+        if playerESPEnabled or nametagsEnabled then
+            applyOnePlayerESP(p)
+        end
     end))
     
-    -- Aplicar ESP inicial
+    -- Conectar para cambios de atributos
+    table.insert(playerConns, p:GetAttributeChangedSignal("Spectator"):Connect(function()
+        if playerESPEnabled or nametagsEnabled then
+            applyOnePlayerESP(p)
+        end
+    end))
+    
+    -- Aplicar ESP inicial inmediatamente si tiene personaje
     if p.Character then
-        task.wait(0.5)
-        applyOnePlayerESP(p)
+        task.spawn(function()
+            task.wait(0.3)
+            if playerESPEnabled or nametagsEnabled then
+                applyOnePlayerESP(p)
+            end
+        end)
     end
     
-    connections[p] = conns
+    connections[p] = playerConns
 end
 
 local function unwatchPlayer(p)
     if connections[p] then
         for _, conn in ipairs(connections[p]) do
-            conn:Disconnect()
+            pcall(function() conn:Disconnect() end)
         end
         connections[p] = nil
     end
     
-    -- Limpiar ESP
-    if p.Character then
-        clearHighlight(p.Character)
-        local head = p.Character:FindFirstChild("Head")
-        if head and head:FindFirstChild("VD_Tag") then
-            head.VD_Tag:Destroy()
-        end
-    end
-    
+    cleanPlayerESP(p)
     playerCache[p] = nil
 end
 
--- Toggles Player ESP
+-- Toggles Player ESP MEJORADOS
 VisualTab:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
@@ -337,6 +462,8 @@ VisualTab:CreateToggle({
         playerESPEnabled = s
         if s or nametagsEnabled then
             startESPLoop()
+            task.wait(0.1)
+            forceUpdateAllPlayers() -- Forzar actualización inmediata
         else
             stopESPLoop()
         end
@@ -344,13 +471,15 @@ VisualTab:CreateToggle({
 })
 
 VisualTab:CreateToggle({
-    Name = "Names/Distance",
+    Name = "Mostrar Nombres",
     CurrentValue = false,
     Flag = "Nametags",
     Callback = function(s)
         nametagsEnabled = s
         if s or playerESPEnabled then
             startESPLoop()
+            task.wait(0.1)
+            forceUpdateAllPlayers() -- Forzar actualización inmediata
         else
             stopESPLoop()
         end
@@ -363,37 +492,56 @@ VisualTab:CreateToggle({
     Flag = "ShowDistance",
     Callback = function(s)
         showDistance = s
+        if playerESPEnabled or nametagsEnabled then
+            forceUpdateAllPlayers() -- Actualizar todos con nuevo formato
+        end
+    end
+})
+
+VisualTab:CreateButton({
+    Name = "Forzar Actualización ESP",
+    Callback = function()
+        forceUpdateAllPlayers()
+        Rayfield:Notify({
+            Title = "ESP Actualizado",
+            Content = "Todos los jugadores han sido actualizados",
+            Duration = 2
+        })
     end
 })
 
 VisualTab:CreateColorPicker({
-    Name = "Survivor Color",
+    Name = "Color Survivor",
     Color = survivorColor,
     Flag = "SurvivorCol",
     Callback = function(c) 
         survivorColor = c 
         if playerESPEnabled or nametagsEnabled then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP then
-                    applyOnePlayerESP(player)
-                end
-            end
+            forceUpdateAllPlayers()
         end
     end
 })
 
 VisualTab:CreateColorPicker({
-    Name = "Killer Color",
+    Name = "Color Killer",
     Color = killerColor,
     Flag = "KillerCol",
     Callback = function(c) 
         killerColor = c 
         if playerESPEnabled or nametagsEnabled then
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP then
-                    applyOnePlayerESP(player)
-                end
-            end
+            forceUpdateAllPlayers()
+        end
+    end
+})
+
+VisualTab:CreateColorPicker({
+    Name = "Color Lobby",
+    Color = lobbyColor,
+    Flag = "LobbyCol",
+    Callback = function(c) 
+        lobbyColor = c 
+        if playerESPEnabled or nametagsEnabled then
+            forceUpdateAllPlayers()
         end
     end
 })
@@ -407,6 +555,21 @@ VisualTab:CreateSlider({
     Flag = "MaxDistance",
     Callback = function(v)
         maxDistance = v
+        if playerESPEnabled or nametagsEnabled then
+            forceUpdateAllPlayers()
+        end
+    end
+})
+
+VisualTab:CreateSlider({
+    Name = "Intervalo de Actualización",
+    Range = {0.05, 0.5},
+    Increment = 0.05,
+    Suffix = " segundos",
+    CurrentValue = ESP_UPDATE_INTERVAL,
+    Flag = "UpdateInterval",
+    Callback = function(v)
+        ESP_UPDATE_INTERVAL = v
     end
 })
 
@@ -420,6 +583,10 @@ end
 Players.PlayerAdded:Connect(function(p)
     if p ~= LP then
         watchPlayer(p)
+        task.wait(0.5)
+        if playerESPEnabled or nametagsEnabled then
+            applyOnePlayerESP(p)
+        end
     end
 end)
 
