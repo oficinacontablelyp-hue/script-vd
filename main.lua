@@ -235,7 +235,7 @@ Players.PlayerAdded:Connect(watchPlayer)
 Players.PlayerRemoving:Connect(unwatchPlayer)
 
 -- Sección para Generators
-TabESP:CreateSection("Generators")
+Tab:CreateSection("Generators")
 
 -- Variables para ESP de generators
 local generatorESPEnabled = false
