@@ -17,6 +17,7 @@ local survivorColor = Color3.fromRGB(0, 255, 0)
 local killerColor = Color3.fromRGB(255, 0, 0)
 local spectatorColor = Color3.fromRGB(255, 255, 255)
 local lobbyColor = Color3.fromRGB(200, 200, 200)
+local generatorColor = Color3.fromRGB(0, 170, 255)  -- AÑADIDO: Color para generadores
 
 -- Cache mejorado
 local playerCache = {}
@@ -852,7 +853,6 @@ local function stopBoostWatcher()
     isRepairing = false
 end
 
--- UI
 SurvivorTab:CreateToggle({
     Name = "Enable Generator Boost",
     CurrentValue = false,
@@ -883,7 +883,6 @@ SurvivorTab:CreateSlider({
     end
 })
 
--- Speed Boost
 SurvivorTab:CreateSection("Speed Boost")
 local speedBoostEnabled = false
 local speedBoostValue = 1.25
@@ -971,7 +970,7 @@ local function enablePerfectLoop()
                     end
                     
                     if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < (bar.AbsoluteSize.X * 0.45) then
-                        perfectZone = obj
+                        zone = obj
                     end
                     
                     if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < math.max(8, bar.AbsoluteSize.X * 0.06) then
@@ -1279,13 +1278,13 @@ local function cleanup()
     -- Detener todos los loops
     if espLoopConn then espLoopConn:Disconnect() end
     if generatorLoopConn then generatorLoopConn:Disconnect() end
-    if repairConnection then repairConnection:Disconnect() end
+    if repairWatcher then repairWatcher:Disconnect() end  -- CORREGIDO: era repairConnection
     if perfectConn then perfectConn:Disconnect() end
     
     -- Limpiar ESP
     stopESPLoop()
     stopGeneratorLoop()
-    stopRepairWatcher()
+    stopBoostWatcher()  -- CORREGIDO: era stopRepairWatcher
     
     -- Limpiar No Fog/Shadows
     nfDisable()
@@ -1308,7 +1307,7 @@ game:GetService("UserInputService").WindowFocusReleased:Connect(cleanup)
 Rayfield:LoadConfiguration()
 Rayfield:Notify({
     Title = "LoreOnTop",
-    Content = "Script loaded successfully with all features",
+    Content = "Script loaded",
     Duration = 5,
     Image = "rbxassetid://4483345998"
 })
