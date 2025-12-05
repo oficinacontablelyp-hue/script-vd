@@ -951,115 +951,237 @@ local function stopNoSkillCheck()
 end
 
 -- ============================================
--- SISTEMA NO FOG / NO SHADOWS
+-- SISTEMA LOW GRAPHICS
 -- ============================================
-local noFogEnabled = false
-local noShadowsEnabled = false
-local fogConnection = nil
-local shadowsConnection = nil
+local lowGraphicsEnabled = false
+local lowGraphicsConnection = nil
+local originalSettings = {}
 
-local function applyNoFog()
-    if not noFogEnabled then return end
+-- Función para aplicar Low Graphics
+local function applyLowGraphics()
+    if not lowGraphicsEnabled then return end
     
     pcall(function()
-        Lighting.FogEnd = 100000
-        Lighting.FogStart = 100000
+        -- 1. DESACTIVAR SOMBRAS
+        Lighting.GlobalShadows = false
+        
+        -- 2. ELIMINAR NIEBLA/ATMOSFERA
+        Lighting.FogEnd = 1000000
+        Lighting.FogStart = 1000000
+        
         if Lighting:FindFirstChild("Atmosphere") then
             Lighting.Atmosphere.Density = 0
             Lighting.Atmosphere.Offset = 100000
+            Lighting.Atmosphere.Color = Color3.new(1, 1, 1)
         end
         
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("ParticleEmitter") and obj.Name:lower():find("fog") then
-                obj.Enabled = false
-                obj.Rate = 0
-            end
-        end
-    end)
-end
-
-local function applyNoShadows()
-    if not noShadowsEnabled then return end
-    
-    pcall(function()
-        Lighting.GlobalShadows = false
+        -- 3. ELIMINAR EFECTOS DE POST-PROCESAMIENTO
+        local effectsToDisable = {
+            "BloomEffect",
+            "BlurEffect", 
+            "SunRaysEffect",
+            "ColorCorrectionEffect",
+            "DepthOfFieldEffect"
+        }
         
-        for _, part in ipairs(Workspace:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CastShadow = false
-                part.Material = Enum.Material.SmoothPlastic
-            end
-        end
-        
-        for _, effect in ipairs(Lighting:GetChildren()) do
-            if effect:IsA("BloomEffect") or 
-               effect:IsA("DepthOfFieldEffect") or
-               effect:IsA("SunRaysEffect") then
+        for _, effectName in ipairs(effectsToDisable) do
+            local effect = Lighting:FindFirstChild(effectName)
+            if effect then
                 effect.Enabled = false
             end
         end
-    end)
-end
-
-local function startNoFogLoop()
-    if fogConnection then return end
-    
-    fogConnection = RunService.Heartbeat:Connect(function()
-        applyNoFog()
-    end)
-    
-    applyNoFog()
-end
-
-local function startNoShadowsLoop()
-    if shadowsConnection then return end
-    
-    shadowsConnection = RunService.Heartbeat:Connect(function()
-        applyNoShadows()
-    end)
-    
-    applyNoShadows()
-end
-
-local function stopNoFogLoop()
-    if fogConnection then
-        fogConnection:Disconnect()
-        fogConnection = nil
-    end
-    
-    pcall(function()
-        Lighting.FogEnd = 1000
-        Lighting.FogStart = 0
-        if Lighting:FindFirstChild("Atmosphere") then
-            Lighting.Atmosphere.Density = 0.3
-            Lighting.Atmosphere.Offset = 0.25
-        end
-    end)
-end
-
-local function stopNoShadowsLoop()
-    if shadowsConnection then
-        shadowsConnection:Disconnect()
-        shadowsConnection = nil
-    end
-    
-    pcall(function()
-        Lighting.GlobalShadows = true
         
+        -- 4. REDUCIR CALIDAD DE TEXTURAS Y MATERIALES
         for _, part in ipairs(Workspace:GetDescendants()) do
             if part:IsA("BasePart") then
-                part.CastShadow = true
+                -- Desactivar sombras en partes
+                part.CastShadow = false
+                
+                -- Cambiar materiales costosos por simples
+                if part.Material == Enum.Material.Glass or 
+                   part.Material == Enum.Material.Neon or
+                   part.Material == Enum.Material.Foil then
+                    part.Material = Enum.Material.SmoothPlastic
+                end
+                
+                -- Reducir transparencia en partes transparentes
+                if part.Transparency > 0.5 then
+                    part.Transparency = 0.8
+                end
+            end
+            
+            -- 5. ELIMINAR PARTÍCULAS (GRANULADO/EFECTOS VISUALES)
+            if part:IsA("ParticleEmitter") then
+                part.Enabled = false
+                part.Rate = 0
+            end
+            
+            -- 6. ELIMINAR DECALS/STICKERS INNECESARIOS
+            if part:IsA("Decal") then
+                local texture = part.Texture:lower()
+                if texture:find("noise") or texture:find("grain") or 
+                   texture:find("dirt") or texture:find("scratch") then
+                    part.Transparency = 1
+                end
+            end
+            
+            -- 7. DESACTIVAR FUENTES DE LUZ DINÁMICAS
+            if part:IsA("PointLight") or part:IsA("SpotLight") or 
+               part:IsA("SurfaceLight") then
+                part.Enabled = false
             end
         end
         
-        for _, effect in ipairs(Lighting:GetChildren()) do
-            if effect:IsA("BloomEffect") or 
-               effect:IsA("DepthOfFieldEffect") or
-               effect:IsA("SunRaysEffect") then
-                effect.Enabled = true
+        -- 8. CONFIGURAR RENDER SETTINGS
+        local settings = game:GetService("Workspace"):FindFirstChild("CurrentCamera")
+        if settings then
+            -- Reducir calidad de renderizado
+            settings.DepthOfField.Enabled = false
+            settings.Bloom.Enabled = false
+        end
+        
+        -- 9. ELIMINAR NUBES
+        if Workspace:FindFirstChildOfClass("Clouds") then
+            Workspace:FindFirstChildOfClass("Clouds"):Destroy()
+        end
+        
+        -- 10. REDUCIR CALIDAD DE AGUA
+        for _, water in ipairs(Workspace:GetDescendants()) do
+            if water:IsA("Water") then
+                water.Material = Enum.Material.SmoothPlastic
+                water.Transparency = 0.7
             end
         end
     end)
+end
+
+-- Función para guardar configuraciones originales
+local function saveOriginalSettings()
+    originalSettings = {
+        GlobalShadows = Lighting.GlobalShadows,
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart,
+        Atmosphere = {}
+    }
+    
+    -- Guardar configuración de Atmosphere si existe
+    local atmosphere = Lighting:FindFirstChild("Atmosphere")
+    if atmosphere then
+        originalSettings.Atmosphere = {
+            Density = atmosphere.Density,
+            Offset = atmosphere.Offset,
+            Color = atmosphere.Color
+        }
+    end
+    
+    -- Guardar efectos
+    originalSettings.Effects = {}
+    local effects = {"BloomEffect", "BlurEffect", "SunRaysEffect", "ColorCorrectionEffect", "DepthOfFieldEffect"}
+    
+    for _, effectName in ipairs(effects) do
+        local effect = Lighting:FindFirstChild(effectName)
+        if effect then
+            originalSettings.Effects[effectName] = effect.Enabled
+        end
+    end
+    
+    -- Guardar configuraciones de partes
+    originalSettings.Parts = {}
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            originalSettings.Parts[part] = {
+                CastShadow = part.CastShadow,
+                Material = part.Material,
+                Transparency = part.Transparency
+            }
+        elseif part:IsA("ParticleEmitter") then
+            originalSettings.Parts[part] = {
+                Enabled = part.Enabled,
+                Rate = part.Rate
+            }
+        elseif part:IsA("PointLight") or part:IsA("SpotLight") or part:IsA("SurfaceLight") then
+            originalSettings.Parts[part] = {
+                Enabled = part.Enabled
+            }
+        end
+    end
+end
+
+-- Función para restaurar configuraciones originales
+local function restoreOriginalSettings()
+    pcall(function()
+        -- Restaurar Lighting
+        Lighting.GlobalShadows = originalSettings.GlobalShadows or true
+        Lighting.FogEnd = originalSettings.FogEnd or 1000
+        Lighting.FogStart = originalSettings.FogStart or 0
+        
+        -- Restaurar Atmosphere
+        local atmosphere = Lighting:FindFirstChild("Atmosphere")
+        if atmosphere and originalSettings.Atmosphere then
+            atmosphere.Density = originalSettings.Atmosphere.Density or 0.3
+            atmosphere.Offset = originalSettings.Atmosphere.Offset or 0.25
+            atmosphere.Color = originalSettings.Atmosphere.Color or Color3.new(1, 1, 1)
+        end
+        
+        -- Restaurar efectos
+        if originalSettings.Effects then
+            for effectName, enabled in pairs(originalSettings.Effects) do
+                local effect = Lighting:FindFirstChild(effectName)
+                if effect then
+                    effect.Enabled = enabled
+                end
+            end
+        end
+        
+        -- Restaurar partes
+        if originalSettings.Parts then
+            for part, settings in pairs(originalSettings.Parts) do
+                if part and part.Parent then
+                    if part:IsA("BasePart") then
+                        part.CastShadow = settings.CastShadow
+                        part.Material = settings.Material
+                        part.Transparency = settings.Transparency
+                    elseif part:IsA("ParticleEmitter") then
+                        part.Enabled = settings.Enabled
+                        part.Rate = settings.Rate
+                    elseif part:IsA("PointLight") or part:IsA("SpotLight") or part:IsA("SurfaceLight") then
+                        part.Enabled = settings.Enabled
+                    end
+                end
+            end
+        end
+        
+        -- Restaurar Render Settings
+        local settings = game:GetService("Workspace"):FindFirstChild("CurrentCamera")
+        if settings then
+            settings.DepthOfField.Enabled = true
+            settings.Bloom.Enabled = true
+        end
+    end)
+end
+
+local function startLowGraphicsLoop()
+    if lowGraphicsConnection then return end
+    
+    -- Guardar configuraciones originales
+    saveOriginalSettings()
+    
+    -- Aplicar inmediatamente
+    applyLowGraphics()
+    
+    -- Monitorear constantemente
+    lowGraphicsConnection = RunService.Heartbeat:Connect(function()
+        applyLowGraphics()
+    end)
+end
+
+local function stopLowGraphicsLoop()
+    if lowGraphicsConnection then
+        lowGraphicsConnection:Disconnect()
+        lowGraphicsConnection = nil
+    end
+    
+    restoreOriginalSettings()
 end
 
 -- ============================================
@@ -1698,30 +1820,38 @@ local GraphicsTab = Window:CreateTab("Graphics")
 GraphicsTab:CreateSection("Optimization")
 
 GraphicsTab:CreateToggle({
-    Name = "No Fog",
+    Name = "Low Graphics",
     CurrentValue = false,
-    Flag = "NoFog",
+    Flag = "LowGraphics",
     Callback = function(s) 
-        noFogEnabled = s
+        lowGraphicsEnabled = s
         if s then 
-            startNoFogLoop()
+            startLowGraphicsLoop()
+            Rayfield:Notify({
+                Title = "Low Graphics Activado",
+                Content = "Juego optimizado para mejor rendimiento",
+                Duration = 3
+            })
         else 
-            stopNoFogLoop()
+            stopLowGraphicsLoop()
+            Rayfield:Notify({
+                Title = "Low Graphics Desactivado",
+                Content = "Calidad gráfica restaurada",
+                Duration = 3
+            })
         end
     end
 })
 
-GraphicsTab:CreateToggle({
-    Name = "No Shadows",
-    CurrentValue = false,
-    Flag = "NoShadows",
-    Callback = function(s) 
-        noShadowsEnabled = s
-        if s then 
-            startNoShadowsLoop()
-        else 
-            stopNoShadowsLoop()
-        end
+GraphicsTab:CreateButton({
+    Name = "Forzar Optimización",
+    Callback = function()
+        applyLowGraphics()
+        Rayfield:Notify({
+            Title = "Optimizado",
+            Content = "Graphics optimizados manualmente",
+            Duration = 2
+        })
     end
 })
 
