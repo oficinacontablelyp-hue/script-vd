@@ -4,6 +4,8 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LP = Players.LocalPlayer
 
 -- Variables ESP
@@ -17,9 +19,9 @@ local survivorColor = Color3.fromRGB(0, 255, 0)
 local killerColor = Color3.fromRGB(255, 0, 0)
 local spectatorColor = Color3.fromRGB(255, 255, 255)
 local lobbyColor = Color3.fromRGB(200, 200, 200)
-local generatorColor = Color3.fromRGB(0, 170, 255)  -- AÑADIDO: Color para generadores
+local generatorColor = Color3.fromRGB(0, 170, 255)
 
--- Cache mejorado
+-- Cache
 local playerCache = {}
 local connections = {}
 local espObjects = {}
@@ -54,14 +56,12 @@ local function firstBasePart(inst)
     return nil
 end
 
--- Billboard optimizado
+-- Billboard
 local function makeBillboard(text, color3, parent)
     if not parent then return nil end
     
-    -- Verificar si ya existe
     local existing = parent:FindFirstChild("ESP_Tag")
     if existing then
-        -- Actualizar existente en lugar de destruir
         local label = existing:FindFirstChild("Label")
         if label then
             label.Text = text
@@ -71,7 +71,6 @@ local function makeBillboard(text, color3, parent)
         return existing
     end
     
-    -- Crear nuevo
     local g = Instance.new("BillboardGui")
     g.Name = "ESP_Tag"
     g.AlwaysOnTop = true
@@ -92,13 +91,12 @@ local function makeBillboard(text, color3, parent)
     l.TextStrokeColor3 = Color3.new(0, 0, 0)
     l.Parent = g
     
-    -- Registrar para limpieza
     table.insert(espObjects, g)
     
     return g
 end
 
--- Highlight optimizado
+-- Highlight
 local function ensureHighlight(model, color)
     if not (model and model:IsA("Model") and alive(model)) then return nil end
     
@@ -136,7 +134,6 @@ local function clearHighlight(model)
     if model and model:FindFirstChild("ESP_Highlight") then
         local hl = model.ESP_Highlight
         hl:Destroy()
-        -- Remover de la lista
         for i, obj in ipairs(espObjects) do
             if obj == hl then
                 table.remove(espObjects, i)
@@ -146,7 +143,7 @@ local function clearHighlight(model)
     end
 end
 
--- Función para obtener rol MEJORADA
+-- Función para obtener rol
 local function getRole(p)
     if not p then return "Lobby" end
     local team = p.Team
@@ -160,7 +157,7 @@ local function getRole(p)
     return "Lobby"
 end
 
--- Función para verificar espectador MEJORADA
+-- Función para verificar espectador
 local function isSpectator(p)
     if not p then return true end
     if not p.Character then return true end
@@ -176,7 +173,6 @@ local function isInLobby(p)
     if not p then return true end
     if not p.Character then return true end
     
-    -- Verificar si está en un área de lobby
     local hrp = p.Character:FindFirstChild("HumanoidRootPart")  
     if hrp then
         local pos = hrp.Position
@@ -188,7 +184,7 @@ local function isInLobby(p)
     return getRole(p) == "Lobby"
 end
 
--- Función para obtener color MEJORADA
+-- Función para obtener color
 local function getPlayerColor(p)
     if isInLobby(p) then
         return lobbyColor
@@ -201,20 +197,14 @@ local function getPlayerColor(p)
     end
 end
 
--- Crear ventana principal
-local Window = Rayfield:CreateWindow({
-    Name = "LoreOnTop",
-    LoadingTitle = "Violence District",
-    LoadingSubtitle = "Hecho por kcha abuelas3000",
-    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
-    KeySystem = false
-})
+-- ============================================
+-- SISTEMA ESP PARA JUGADORES
+-- ============================================
 
--- VISUAL TAB
-local VisualTab = Window:CreateTab("Visual")
-VisualTab:CreateSection("ESP")
+local espLoopConn = nil
+local lastESPUpdate = 0
+local ESP_UPDATE_INTERVAL = 0.1
 
--- Función para limpiar ESP de un jugador
 local function cleanPlayerESP(p)
     if not p then return end
     
@@ -231,7 +221,6 @@ local function cleanPlayerESP(p)
     end
 end
 
--- Aplicar ESP a un jugador (MEJORADA)
 local function applyOnePlayerESP(p)
     if p == LP then return end
     
@@ -241,30 +230,24 @@ local function applyOnePlayerESP(p)
         return
     end
     
-    -- Obtener color
     local color = getPlayerColor(p)
     
     local head = character:FindFirstChild("Head")
     local hrp = character:FindFirstChild("HumanoidRootPart")
     
-    -- Aplicar ESP
     if playerESPEnabled or nametagsEnabled then
-        -- Highlight (solo si playerESPEnabled está activado)
         if playerESPEnabled then
             local hl = ensureHighlight(character, color)
             if hl then
                 hl.Enabled = true
             end
         else
-            -- Desactivar highlight si no está activado
             clearHighlight(character)
         end
         
-        -- Nametag (solo si nametagsEnabled está activado)
         if nametagsEnabled and validPart(head) then
             local text = p.Name
             
-            -- Añadir distancia si está habilitado
             if showDistance and not isSpectator(p) and not isInLobby(p) and hrp and LP.Character then
                 local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
                 if myHrp then
@@ -275,17 +258,14 @@ local function applyOnePlayerESP(p)
                 end
             end
             
-            -- Crear o actualizar nametag
             local tag = makeBillboard(text, color, head)
             if tag then
                 tag.Enabled = true
             end
         elseif head and head:FindFirstChild("ESP_Tag") then
-            -- Desactivar nametag si no está activado
             head.ESP_Tag.Enabled = false
         end
         
-        -- Guardar en cache
         if not playerCache[p] then 
             playerCache[p] = {
                 lastUpdate = tick(),
@@ -294,17 +274,10 @@ local function applyOnePlayerESP(p)
         end
         playerCache[p].lastUpdate = tick()
     else
-        -- Limpiar todo si ambos están desactivados
         cleanPlayerESP(p)
     end
 end
 
--- Loop de ESP MEJORADO
-local espLoopConn = nil
-local lastESPUpdate = 0
-local ESP_UPDATE_INTERVAL = 0.1 -- Más rápido (100ms)
-
--- Sistema de actualización por lotes
 local updateQueue = {}
 local isProcessing = false
 
@@ -312,7 +285,6 @@ local function processUpdateQueue()
     if isProcessing then return end
     isProcessing = true
     
-    -- Procesar máximo 5 jugadores por frame para mejor rendimiento
     local processed = 0
     local maxPerFrame = 5
     
@@ -336,26 +308,21 @@ local function startESPLoop()
     espLoopConn = RunService.Heartbeat:Connect(function(deltaTime)
         if not (playerESPEnabled or nametagsEnabled) then return end
         
-        -- Control de intervalo
         local now = tick()
         if now - lastESPUpdate < ESP_UPDATE_INTERVAL then 
-            -- Procesar cola mientras espera
             processUpdateQueue()
             return 
         end
         lastESPUpdate = now
         
-        -- Limpiar cola vieja
         updateQueue = {}
         
-        -- Añadir todos los jugadores a la cola
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LP then
                 table.insert(updateQueue, player)
             end
         end
         
-        -- Procesar primer lote inmediatamente
         processUpdateQueue()
     end)
 end
@@ -366,14 +333,12 @@ local function stopESPLoop()
         espLoopConn = nil
     end
     
-    -- Limpiar todo el ESP inmediatamente
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LP then
             cleanPlayerESP(player)
         end
     end
     
-    -- Limpiar objetos ESP residuales
     for _, obj in ipairs(espObjects) do
         if obj and obj.Parent then
             pcall(function() obj:Destroy() end)
@@ -384,7 +349,6 @@ local function stopESPLoop()
     updateQueue = {}
 end
 
--- Función para forzar actualización de todos los jugadores
 local function forceUpdateAllPlayers()
     if not (playerESPEnabled or nametagsEnabled) then return end
     
@@ -392,21 +356,19 @@ local function forceUpdateAllPlayers()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LP then
             table.insert(updateQueue, player)
-            applyOnePlayerESP(player) -- Aplicar inmediatamente
+            applyOnePlayerESP(player)
         end
     end
 end
 
--- Observadores de jugadores MEJORADOS
 local function watchPlayer(p)
     if p == LP then return end
-    if connections[p] then return end -- Ya está siendo observado
+    if connections[p] then return end
     
     local playerConns = {}
     
-    -- Conectar eventos con respuesta inmediata
     table.insert(playerConns, p.CharacterAdded:Connect(function(character)
-        task.wait(0.3) -- Menos espera
+        task.wait(0.3)
         if playerESPEnabled or nametagsEnabled then
             applyOnePlayerESP(p)
         end
@@ -418,14 +380,12 @@ local function watchPlayer(p)
         end
     end))
     
-    -- Conectar para cambios de atributos
     table.insert(playerConns, p:GetAttributeChangedSignal("Spectator"):Connect(function()
         if playerESPEnabled or nametagsEnabled then
             applyOnePlayerESP(p)
         end
     end))
     
-    -- Aplicar ESP inicial inmediatamente si tiene personaje
     if p.Character then
         task.spawn(function()
             task.wait(0.3)
@@ -450,7 +410,628 @@ local function unwatchPlayer(p)
     playerCache[p] = nil
 end
 
--- Toggles Player ESP MEJORADOS
+-- ============================================
+-- SISTEMA ESP PARA GENERATORS
+-- ============================================
+local generatorESPEnabled = false
+local generatorLoopConn = nil
+local generatorCache = {}
+
+local function ensureGeneratorHighlight(model, color)
+    if not (model and model:IsA("Model") and alive(model)) then return nil end
+    
+    local hl = model:FindFirstChild("Generator_Highlight")
+    if not hl then
+        local success, result = pcall(function()
+            local h = Instance.new("Highlight")
+            h.Name = "Generator_Highlight"
+            h.Adornee = model
+            h.FillTransparency = 0.7
+            h.OutlineTransparency = 0.2
+            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            h.FillColor = color
+            h.OutlineColor = color
+            h.Parent = model
+            return h
+        end)
+        if success then 
+            hl = result
+            table.insert(espObjects, hl)
+        else 
+            return nil 
+        end
+    else
+        hl.FillColor = color
+        hl.OutlineColor = color
+        hl.FillTransparency = 0.7
+        hl.OutlineTransparency = 0.2
+        hl.Enabled = true
+    end
+    return hl
+end
+
+local function clearGeneratorHighlight(model)
+    if model and model:FindFirstChild("Generator_Highlight") then
+        local hl = model.Generator_Highlight
+        hl:Destroy()
+        for i, obj in ipairs(espObjects) do
+            if obj == hl then
+                table.remove(espObjects, i)
+                break
+            end
+        end
+    end
+end
+
+local function getGeneratorProgress(model)
+    local progress = model:GetAttribute("RepairProgress") or 
+                     model:GetAttribute("Progress") or 
+                     model:GetAttribute("CurrentProgress") or 0
+    
+    if progress <= 1 then
+        progress = progress * 100
+    end
+    
+    return math.clamp(progress, 0, 100)
+end
+
+local function findGenerators()
+    local generators = {}
+    
+    local searchLocations = {
+        Workspace,
+        Workspace:FindFirstChild("Map"),
+        Workspace:FindFirstChild("Map1"),
+        Workspace:FindFirstChild("Generators"),
+        Workspace:FindFirstChild("Props")
+    }
+    
+    for _, location in ipairs(searchLocations) do
+        if location then
+            for _, obj in ipairs(location:GetDescendants()) do
+                if obj:IsA("Model") and (obj.Name:lower():find("generator") or 
+                   obj.Name:lower():find("gen") or 
+                   obj:GetAttribute("IsGenerator") == true) then
+                    
+                    local basePart = firstBasePart(obj)
+                    if basePart then
+                        generators[obj] = {
+                            model = obj,
+                            part = basePart,
+                            lastCheck = tick()
+                        }
+                    end
+                end
+            end
+        end
+    end
+    
+    return generators
+end
+
+local function updateGeneratorESP()
+    if not generatorESPEnabled then return end
+    
+    local generators = findGenerators()
+    local now = tick()
+    
+    for model, data in pairs(generatorCache) do
+        if not alive(model) or not generators[model] then
+            clearGeneratorHighlight(model)
+            if data.part and data.part:FindFirstChild("Generator_Tag") then
+                data.part.Generator_Tag:Destroy()
+            end
+            generatorCache[model] = nil
+        end
+    end
+    
+    for model, genData in pairs(generators) do
+        if now - (generatorCache[model] and generatorCache[model].lastUpdate or 0) > 0.5 then
+            
+            local progress = getGeneratorProgress(model)
+            local color = generatorColor
+            
+            if progress >= 100 then
+                color = Color3.fromRGB(0, 255, 0)
+            elseif progress >= 75 then
+                color = Color3.fromRGB(0, 200, 100)
+            elseif progress >= 50 then
+                color = Color3.fromRGB(255, 255, 0)
+            elseif progress >= 25 then
+                color = Color3.fromRGB(255, 165, 0)
+            else
+                color = Color3.fromRGB(255, 50, 50)
+            end
+            
+            local hl = ensureGeneratorHighlight(model, color)
+            if hl then
+                hl.Enabled = true
+            end
+            
+            local part = genData.part
+            if part then
+                local existingTag = part:FindFirstChild("Generator_Tag")
+                if existingTag then
+                    existingTag:Destroy()
+                end
+                
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "Generator_Tag"
+                bb.AlwaysOnTop = true
+                bb.Size = UDim2.new(0, 150, 0, 40)
+                bb.StudsOffset = Vector3.new(0, 5, 0)
+                bb.Enabled = true
+                bb.Parent = part
+                
+                local label = Instance.new("TextLabel")
+                label.Name = "Label"
+                label.BackgroundTransparency = 1
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.Font = Enum.Font.GothamBold
+                label.Text = string.format("Generator: %.0f%%", progress)
+                label.TextSize = 14
+                label.TextColor3 = color
+                label.TextStrokeTransparency = 0
+                label.TextStrokeColor3 = Color3.new(0, 0, 0)
+                label.Parent = bb
+                
+                table.insert(espObjects, bb)
+            end
+            
+            generatorCache[model] = {
+                model = model,
+                part = genData.part,
+                lastUpdate = now
+            }
+        end
+    end
+end
+
+local function startGeneratorESPLoop()
+    if generatorLoopConn then return end
+    
+    generatorLoopConn = RunService.Heartbeat:Connect(function()
+        updateGeneratorESP()
+    end)
+end
+
+local function stopGeneratorESPLoop()
+    if generatorLoopConn then
+        generatorLoopConn:Disconnect()
+        generatorLoopConn = nil
+    end
+    
+    for model, _ in pairs(generatorCache) do
+        clearGeneratorHighlight(model)
+        if model and model.PrimaryPart and model.PrimaryPart:FindFirstChild("Generator_Tag") then
+            model.PrimaryPart.Generator_Tag:Destroy()
+        end
+    end
+    generatorCache = {}
+end
+
+-- ============================================
+-- SISTEMA SPEED BOOST (SURVIVOR & KILLER)
+-- ============================================
+local speedBoostEnabled = false
+local speedBoostValue = 1.25
+local killerSpeedEnabled = false
+local killerSpeedValue = 1.3
+local speedBoostConnection = nil
+
+local function applySpeedBoost()
+    if not LP.Character then return end
+    
+    local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    local role = getRole(LP)
+    local baseSpeed = 16
+    
+    if role == "Killer" and killerSpeedEnabled then
+        humanoid.WalkSpeed = baseSpeed * killerSpeedValue
+        humanoid:SetAttribute("speedboost", killerSpeedValue)
+    elseif role == "Survivor" and speedBoostEnabled then
+        humanoid.WalkSpeed = baseSpeed * speedBoostValue
+        humanoid:SetAttribute("speedboost", speedBoostValue)
+    else
+        humanoid.WalkSpeed = baseSpeed
+        humanoid:SetAttribute("speedboost", nil)
+    end
+end
+
+local function startSpeedBoostWatcher()
+    if speedBoostConnection then return end
+    
+    speedBoostConnection = RunService.Heartbeat:Connect(function()
+        applySpeedBoost()
+    end)
+    
+    applySpeedBoost()
+end
+
+local function stopSpeedBoostWatcher()
+    if speedBoostConnection then
+        speedBoostConnection:Disconnect()
+        speedBoostConnection = nil
+    end
+    
+    if LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = 16
+            humanoid:SetAttribute("speedboost", nil)
+        end
+    end
+end
+
+-- ============================================
+-- SISTEMA GENERATOR BOOST
+-- ============================================
+local genBoostEnabled = false
+local genBoostMultiplier = 1.05
+local genBoostConnection = nil
+local originalAttributes = {}
+
+local function applyGeneratorBoost()
+    if not genBoostEnabled or not LP.Character then return end
+    
+    if not originalAttributes.repairboost then
+        originalAttributes.repairboost = LP.Character:GetAttribute("repairboost") or 1.0
+        originalAttributes.GroupProject = LP.Character:GetAttribute("GroupProject") or 0
+        originalAttributes.gp_applied_by = LP.Character:GetAttribute("gp_applied_by") or 0
+    end
+    
+    pcall(function()
+        LP.Character:SetAttribute("repairboost", genBoostMultiplier)
+        LP.Character:SetAttribute("GroupProject", 2)
+        LP.Character:SetAttribute("gp_applied_by", 2717078872)
+        
+        local repairSpeed = LP.Character:FindFirstChild("RepairSpeed")
+        if not repairSpeed then
+            repairSpeed = Instance.new("NumberValue")
+            repairSpeed.Name = "RepairSpeed"
+            repairSpeed.Value = genBoostMultiplier
+            repairSpeed.Parent = LP.Character
+        else
+            repairSpeed.Value = genBoostMultiplier
+        end
+    end)
+end
+
+local function removeGeneratorBoost()
+    if not LP.Character then return end
+    
+    pcall(function()
+        if originalAttributes.repairboost then
+            LP.Character:SetAttribute("repairboost", originalAttributes.repairboost)
+        else
+            LP.Character:SetAttribute("repairboost", 1.0)
+        end
+        
+        if originalAttributes.GroupProject then
+            LP.Character:SetAttribute("GroupProject", originalAttributes.GroupProject)
+        else
+            LP.Character:SetAttribute("GroupProject", 0)
+        end
+        
+        if originalAttributes.gp_applied_by then
+            LP.Character:SetAttribute("gp_applied_by", originalAttributes.gp_applied_by)
+        else
+            LP.Character:SetAttribute("gp_applied_by", 0)
+        end
+        
+        local repairSpeed = LP.Character:FindFirstChild("RepairSpeed")
+        if repairSpeed then
+            repairSpeed:Destroy()
+        end
+    end)
+end
+
+local function startGeneratorBoostWatcher()
+    if genBoostConnection then return end
+    
+    genBoostConnection = RunService.Heartbeat:Connect(function()
+        if genBoostEnabled then
+            applyGeneratorBoost()
+        end
+    end)
+    
+    applyGeneratorBoost()
+end
+
+local function stopGeneratorBoostWatcher()
+    if genBoostConnection then
+        genBoostConnection:Disconnect()
+        genBoostConnection = nil
+    end
+    
+    removeGeneratorBoost()
+end
+
+-- ============================================
+-- SISTEMA PERFECT SKILLCHECK
+-- ============================================
+local perfectSkillEnabled = false
+local perfectSkillConnection = nil
+
+local function findSkillCheckUI()
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    
+    for _, screenGui in ipairs(playerGui:GetChildren()) do
+        if screenGui:IsA("ScreenGui") then
+            for _, obj in ipairs(screenGui:GetDescendants()) do
+                if obj.Name:lower():find("skillcheck") or 
+                   obj.Name:lower():find("skill") and obj:IsA("Frame") then
+                    return obj
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function getSkillCheckComponents(skillCheckUI)
+    local bar, zone, pointer
+    
+    for _, child in ipairs(skillCheckUI:GetDescendants()) do
+        if child:IsA("Frame") then
+            local size = child.AbsoluteSize
+            if size.X > 200 and size.Y < 50 then
+                bar = child
+            elseif child.Name:lower():find("zone") or child.Name:lower():find("perfect") then
+                zone = child
+            elseif child.Name:lower():find("pointer") or child.Name:lower():find("marker") then
+                pointer = child
+            end
+        end
+    end
+    
+    return bar, zone, pointer
+end
+
+local function executePerfectSkillCheck()
+    if not perfectSkillEnabled then return end
+    
+    local skillCheckUI = findSkillCheckUI()
+    if not skillCheckUI then return end
+    
+    local bar, zone, pointer = getSkillCheckComponents(skillCheckUI)
+    if not (bar and zone and pointer) then return end
+    
+    local zoneCenter = zone.AbsolutePosition.X + (zone.AbsoluteSize.X / 2)
+    local barStart = bar.AbsolutePosition.X
+    local barWidth = bar.AbsoluteSize.X
+    
+    if barWidth > 0 then
+        local perfectPosition = (zoneCenter - barStart) / barWidth
+        perfectPosition = math.clamp(perfectPosition, 0, 1)
+        
+        pcall(function()
+            if pointer:IsA("Frame") then
+                pointer.Position = UDim2.new(perfectPosition, 0, pointer.Position.Y.Scale, pointer.Position.Y.Offset)
+            end
+        end)
+        
+        local args = {
+            [1] = perfectPosition,
+            [2] = true
+        }
+        
+        pcall(function()
+            for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+                if remote:IsA("RemoteEvent") and (remote.Name:lower():find("skill") or remote.Name:lower():find("check")) then
+                    remote:FireServer(args)
+                    break
+                end
+            end
+            
+            LP.Character:SetAttribute("LastSkillCheck", perfectPosition)
+            LP.Character:SetAttribute("SkillCheckPerfect", true)
+        end)
+    end
+end
+
+local function startPerfectSkillCheck()
+    if perfectSkillConnection then return end
+    
+    perfectSkillConnection = RunService.Heartbeat:Connect(function()
+        executePerfectSkillCheck()
+    end)
+end
+
+local function stopPerfectSkillCheck()
+    if perfectSkillConnection then
+        perfectSkillConnection:Disconnect()
+        perfectSkillConnection = nil
+    end
+end
+
+-- ============================================
+-- SISTEMA NO SKILLCHECK
+-- ============================================
+local noSkillCheckEnabled = false
+local noSkillCheckConnection = nil
+
+local function removeSkillChecks()
+    if not noSkillCheckEnabled then return end
+    
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    
+    for _, screenGui in ipairs(playerGui:GetChildren()) do
+        if screenGui:IsA("ScreenGui") then
+            for _, obj in ipairs(screenGui:GetDescendants()) do
+                if obj.Name:lower():find("skillcheck") or 
+                   obj.Name:lower():find("skill") and (obj:IsA("Frame") or obj:IsA("ImageLabel")) then
+                    pcall(function() obj:Destroy() end)
+                end
+            end
+        end
+    end
+    
+    pcall(function()
+        LP.Character:SetAttribute("SkipSkillCheck", true)
+        LP.Character:SetAttribute("AutoCompleteSkillCheck", true)
+    end)
+end
+
+local function startNoSkillCheck()
+    if noSkillCheckConnection then return end
+    
+    noSkillCheckConnection = RunService.Heartbeat:Connect(function()
+        removeSkillChecks()
+    end)
+    
+    removeSkillChecks()
+end
+
+local function stopNoSkillCheck()
+    if noSkillCheckConnection then
+        noSkillCheckConnection:Disconnect()
+        noSkillCheckConnection = nil
+    end
+    
+    pcall(function()
+        if LP.Character then
+            LP.Character:SetAttribute("SkipSkillCheck", nil)
+            LP.Character:SetAttribute("AutoCompleteSkillCheck", nil)
+        end
+    end)
+end
+
+-- ============================================
+-- SISTEMA NO FOG / NO SHADOWS
+-- ============================================
+local noFogEnabled = false
+local noShadowsEnabled = false
+local fogConnection = nil
+local shadowsConnection = nil
+
+local function applyNoFog()
+    if not noFogEnabled then return end
+    
+    pcall(function()
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 100000
+        if Lighting:FindFirstChild("Atmosphere") then
+            Lighting.Atmosphere.Density = 0
+            Lighting.Atmosphere.Offset = 100000
+        end
+        
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("ParticleEmitter") and obj.Name:lower():find("fog") then
+                obj.Enabled = false
+                obj.Rate = 0
+            end
+        end
+    end)
+end
+
+local function applyNoShadows()
+    if not noShadowsEnabled then return end
+    
+    pcall(function()
+        Lighting.GlobalShadows = false
+        
+        for _, part in ipairs(Workspace:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CastShadow = false
+                part.Material = Enum.Material.SmoothPlastic
+            end
+        end
+        
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("BloomEffect") or 
+               effect:IsA("DepthOfFieldEffect") or
+               effect:IsA("SunRaysEffect") then
+                effect.Enabled = false
+            end
+        end
+    end)
+end
+
+local function startNoFogLoop()
+    if fogConnection then return end
+    
+    fogConnection = RunService.Heartbeat:Connect(function()
+        applyNoFog()
+    end)
+    
+    applyNoFog()
+end
+
+local function startNoShadowsLoop()
+    if shadowsConnection then return end
+    
+    shadowsConnection = RunService.Heartbeat:Connect(function()
+        applyNoShadows()
+    end)
+    
+    applyNoShadows()
+end
+
+local function stopNoFogLoop()
+    if fogConnection then
+        fogConnection:Disconnect()
+        fogConnection = nil
+    end
+    
+    pcall(function()
+        Lighting.FogEnd = 1000
+        Lighting.FogStart = 0
+        if Lighting:FindFirstChild("Atmosphere") then
+            Lighting.Atmosphere.Density = 0.3
+            Lighting.Atmosphere.Offset = 0.25
+        end
+    end)
+end
+
+local function stopNoShadowsLoop()
+    if shadowsConnection then
+        shadowsConnection:Disconnect()
+        shadowsConnection = nil
+    end
+    
+    pcall(function()
+        Lighting.GlobalShadows = true
+        
+        for _, part in ipairs(Workspace:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CastShadow = true
+            end
+        end
+        
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("BloomEffect") or 
+               effect:IsA("DepthOfFieldEffect") or
+               effect:IsA("SunRaysEffect") then
+                effect.Enabled = true
+            end
+        end
+    end)
+end
+
+-- ============================================
+-- VENTANA RAYFIELD (ORGANIZACIÓN PEDIDA)
+-- ============================================
+local Window = Rayfield:CreateWindow({
+    Name = "LoreOnTop",
+    LoadingTitle = "Violence District",
+    LoadingSubtitle = "Hecho por kcha abuelas3000",
+    ConfigurationSaving = {Enabled = true, FolderName = "ESP_Suite", FileName = "esp_config"},
+    KeySystem = false
+})
+
+-- ============================================
+-- PESTAÑA VISUAL (ESP)
+-- ============================================
+local VisualTab = Window:CreateTab("Visual")
+
+-- Sección Player ESP
+VisualTab:CreateSection("Player ESP")
+
 VisualTab:CreateToggle({
     Name = "Players ESP",
     CurrentValue = false,
@@ -460,7 +1041,7 @@ VisualTab:CreateToggle({
         if s or nametagsEnabled then
             startESPLoop()
             task.wait(0.1)
-            forceUpdateAllPlayers() -- Forzar actualización inmediata
+            forceUpdateAllPlayers()
         else
             stopESPLoop()
         end
@@ -476,12 +1057,40 @@ VisualTab:CreateToggle({
         if s or playerESPEnabled then
             startESPLoop()
             task.wait(0.1)
-            forceUpdateAllPlayers() -- Forzar actualización inmediata
+            forceUpdateAllPlayers()
         else
             stopESPLoop()
         end
     end
 })
+
+VisualTab:CreateToggle({
+  Name = "Mostrar Distancia",
+  CurrentValue = showDistance,
+  Flag = "showDistance",
+  Callback = function(s)
+    showDistance = s
+    if playerESPEnabled or nametagsEnabled then
+      forceUpdateAllPlayers()
+    end
+  end
+})
+
+VisualTab:CreateSlider({
+    Name = "Distancia Máxima",
+    Range = {50, 300},
+    Increment = 10,
+    Suffix = " studs",
+    CurrentValue = maxDistance,
+    Flag = "MaxDistance",
+    Callback = function(v)
+        maxDistance = v
+        if playerESPEnabled or nametagsEnabled then
+            forceUpdateAllPlayers()
+        end
+    end
+})
+
 
 VisualTab:CreateButton({
     Name = "Forzar Actualización ESP",
@@ -531,36 +1140,9 @@ VisualTab:CreateColorPicker({
     end
 })
 
-VisualTab:CreateToggle({
-  Name = "Mostrar Distancia",
-  CurrentValue = showDistance,
-  Flag = "showDistance",
-  Callback = function(s)
-    showDistance = s
-    if playerESPEnabled or nametagsEnabled then
-      forceUpdateAllPlayers()
-    end
-  end
-})
-
 VisualTab:CreateSlider({
-    Name = "Distancia Máxima",
-    Range = {50, 1000},
-    Increment = 10,
-    Suffix = " studs",
-    CurrentValue = maxDistance,
-    Flag = "MaxDistance",
-    Callback = function(v)
-        maxDistance = v
-        if playerESPEnabled or nametagsEnabled then
-            forceUpdateAllPlayers()
-        end
-    end
-})
-
-VisualTab:CreateSlider({
-    Name = "Intervalo de Actualización",
-    Range = {0.05, 0.5},
+    Name = "Intervalo de Actualización ESP",
+    Range = {0.05, 3.00},
     Increment = 0.05,
     Suffix = " segundos",
     CurrentValue = ESP_UPDATE_INTERVAL,
@@ -570,7 +1152,243 @@ VisualTab:CreateSlider({
     end
 })
 
--- Inicializar jugadores
+-- Sección Generator ESP
+VisualTab:CreateSection("Generator ESP")
+
+VisualTab:CreateToggle({
+    Name = "Generator ESP",
+    CurrentValue = false,
+    Flag = "GeneratorESP",
+    Callback = function(s)
+        generatorESPEnabled = s
+        if s then 
+            startGeneratorESPLoop() 
+        else 
+            stopGeneratorESPLoop() 
+        end
+    end
+})
+
+VisualTab:CreateColorPicker({
+    Name = "Generator Color",
+    Color = generatorColor,
+    Flag = "GenCol",
+    Callback = function(c) 
+        generatorColor = c 
+    end
+})
+
+-- ============================================
+-- PESTAÑA SURVIVORS
+-- ============================================
+local SurvivorTab = Window:CreateTab("Survivors")
+
+-- Sección Speed Boost
+SurvivorTab:CreateSection("Speed Boost")
+
+SurvivorTab:CreateToggle({
+    Name = "Enable Speed Boost",
+    CurrentValue = false,
+    Flag = "SpeedBoostToggle",
+    Callback = function(state)
+        speedBoostEnabled = state
+        if state then
+            startSpeedBoostWatcher()
+        else
+            stopSpeedBoostWatcher()
+        end
+    end
+})
+
+SurvivorTab:CreateSlider({
+    Name = "Speed Multiplier",
+    Range = {1.00, 2.00},
+    Increment = 0.10,
+    Suffix = "x",
+    CurrentValue = speedBoostValue,
+    Flag = "SpeedBoostValue",
+    Callback = function(v)
+        speedBoostValue = v
+        if speedBoostEnabled and LP.Character then
+            applySpeedBoost(LP.Character)
+        end
+    end
+})
+
+-- Sección Generator Boost
+SurvivorTab:CreateSection("Generator Boost")
+
+SurvivorTab:CreateToggle({
+    Name = "Enable Generator Boost",
+    CurrentValue = false,
+    Flag = "GenBoostToggle",
+    Callback = function(state)
+        genBoostEnabled = state
+        if state then
+            startGeneratorBoostWatcher()
+        else
+            stopGeneratorBoostWatcher()
+        end
+    end
+})
+
+SurvivorTab:CreateSlider({
+    Name = "Repair Multiplier",
+    Range = {1.00, 5.00},
+    Increment = 0.05,
+    Suffix = "x",
+    CurrentValue = genBoostMultiplier,
+    Flag = "GenBoostValue",
+    Callback = function(value)
+        genBoostMultiplier = value
+        
+        if genBoostEnabled then
+            applyGeneratorBoost()
+        end
+    end
+})
+
+-- Sección SkillCheck
+SurvivorTab:CreateSection("SkillCheck")
+
+SurvivorTab:CreateToggle({
+    Name = "Enable Perfect Skillcheck",
+    CurrentValue = false,
+    Callback = function(v)
+        perfectSkillEnabled = v
+        if v then enablePerfectLoop() else disablePerfectLoop() end
+    end
+})
+
+SurvivorTab:CreateToggle({
+    Name = "Enable No Skillchecks",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then startNoSkillCheck() else stopNoSkillCheck() end
+    end
+})
+
+-- ============================================
+-- PESTAÑA KILLERS
+-- ============================================
+local KillerTab = Window:CreateTab("Killers")
+
+-- Sección Speed Boost Killer
+KillerTab:CreateSection("Speed Boost")
+
+KillerTab:CreateToggle({
+    Name = "Killer Speed Boost",
+    CurrentValue = false,
+    Callback = function(v)
+        killerSpeedEnabled = v
+        applySpeedBoost()
+    end
+})
+
+KillerTab:CreateSlider({
+    Name = "Killer Speed Multiplier",
+    Range = {1.0, 2.0},
+    Increment = 0.1,
+    CurrentValue = killerSpeedValue,
+    Callback = function(v)
+        killerSpeedValue = v
+        if killerSpeedEnabled then
+            applySpeedBoost()
+        end
+    end
+})
+
+-- ============================================
+-- PESTAÑA GRAPHICS
+-- ============================================
+local GraphicsTab = Window:CreateTab("Graphics")
+
+-- Sección Optimization
+GraphicsTab:CreateSection("Optimization")
+
+GraphicsTab:CreateToggle({
+    Name = "No Fog",
+    CurrentValue = false,
+    Flag = "NoFog",
+    Callback = function(s) 
+        noFogEnabled = s
+        if s then 
+            startNoFogLoop()
+        else 
+            stopNoFogLoop()
+        end
+    end
+})
+
+GraphicsTab:CreateToggle({
+    Name = "No Shadows",
+    CurrentValue = false,
+    Flag = "NoShadows",
+    Callback = function(s) 
+        noShadowsEnabled = s
+        if s then 
+            startNoShadowsLoop()
+        else 
+            stopNoShadowsLoop()
+        end
+    end
+})
+
+-- ============================================
+-- PESTAÑA MISC
+-- ============================================
+local MiscTab = Window:CreateTab("Misc")
+
+-- Sección Utilities
+MiscTab:CreateSection("Utilities")
+
+local autoRespawnEnabled = false
+MiscTab:CreateToggle({
+    Name = "Auto Respawn",
+    CurrentValue = false,
+    Callback = function(v)
+        autoRespawnEnabled = v
+    end
+})
+
+MiscTab:CreateButton({
+    Name = "Limpiar Todo",
+    Callback = function()
+        stopESPLoop()
+        stopGeneratorESPLoop()
+        stopSpeedBoostWatcher()
+        stopGeneratorBoostWatcher()
+        stopPerfectSkillCheck()
+        stopNoSkillCheck()
+        stopNoFogLoop()
+        stopNoShadowsLoop()
+        
+        Rayfield:Notify({
+            Title = "Limpieza Completada",
+            Content = "Todos los hacks han sido desactivados",
+            Duration = 3
+        })
+    end
+})
+
+MiscTab:CreateButton({
+    Name = "Recargar Script",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Recargando",
+            Content = "El script se recargará en 3 segundos",
+            Duration = 3
+        })
+        task.wait(3)
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/tu-usuario/tu-repo/main/script.lua"))()
+    end
+})
+
+-- ============================================
+-- INICIALIZACIÓN DEL SISTEMA
+-- ============================================
+
+-- Observadores de jugadores
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LP then
         watchPlayer(p)
@@ -591,765 +1409,29 @@ Players.PlayerRemoving:Connect(function(p)
     unwatchPlayer(p)
 end)
 
--- GENERATOR ESP 
-VisualTab:CreateSection("Generators")
-
-local generatorESPEnabled = false
-local generatorLoopConn = nil
-local worldReg = {Generator = {}}
-
-local function ensureGeneratorHighlight(model, color)
-    if not (model and model:IsA("Model") and alive(model)) then return nil end
-    
-    local hl = model:FindFirstChild("Generator_Highlight")
-    if not hl then
-        local success, result = pcall(function()
-            local h = Instance.new("Highlight")
-            h.Name = "Generator_Highlight"
-            h.Adornee = model
-            h.FillTransparency = 0.7
-            h.OutlineTransparency = 0.2
-            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            h.FillColor = color
-            h.OutlineColor = color
-            h.Parent = model
-            return h
-        end)
-        if success then 
-            hl = result
-            table.insert(espObjects, hl)
-        else 
-            return nil 
-        end
-    else
-        hl.FillColor = color
-        hl.OutlineColor = color
-        hl.FillTransparency = 0.7
-        hl.OutlineTransparency = 0.2
-        hl.Enabled = true
-    end
-    return hl
-end
-
-local function clearGeneratorHighlight(model)
-    if model and model:FindFirstChild("Generator_Highlight") then
-        local hl = model.Generator_Highlight
-        hl:Destroy()
-        -- Remover de la lista
-        for i, obj in ipairs(espObjects) do
-            if obj == hl then
-                table.remove(espObjects, i)
-                break
-            end
-        end
-    end
-end
-
-local function genProgress(m)
-    local p = tonumber(m:GetAttribute("RepairProgress")) or 0
-    if p <= 1.001 then p = p * 100 end
-    return clamp(p, 0, 100)
-end
-
-local function ensureWorldEntry(cat, model)
-    if not alive(model) or worldReg[cat][model] then return end
-    local rep = firstBasePart(model)
-    if not validPart(rep) then return end
-    worldReg[cat][model] = {model = model, part = rep}
-end
-
-local function registerFromDescendant(obj)
-    if not alive(obj) then return end
-    if obj:IsA("Model") and obj.Name == "Generator" then
-        ensureWorldEntry("Generator", obj)
-    end
-end
-
-local function refreshRoots()
-    local r1 = Workspace:FindFirstChild("Map")
-    local r2 = Workspace:FindFirstChild("Map1")
-    
-    if r1 then
-        for _, d in ipairs(r1:GetDescendants()) do 
-            registerFromDescendant(d) 
-        end
-    end
-    if r2 then
-        for _, d in ipairs(r2:GetDescendants()) do 
-            registerFromDescendant(d) 
-        end
-    end
-end
-
-local function colorFromProgress(t)
-    t = clamp(t, 0, 1)
-    local red = Color3.fromRGB(255, 0, 0)
-    local yellow = Color3.fromRGB(255, 255, 0)
-    local green = Color3.fromRGB(0, 255, 0)
-    if t <= 0.5 then
-        return red:Lerp(yellow, t / 0.5)
-    else
-        return yellow:Lerp(green, (t - 0.5) / 0.5)
-    end
-end
-
-local function applyEnhancedGeneratorESP(entry)
-    local model = entry.model
-    local part = entry.part
-    if not generatorESPEnabled or not alive(model) or not validPart(part) then return end
-
-    local pct = genProgress(model)
-    local t = clamp(pct / 100, 0, 1)
-
-    local hlColor = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor
-    
-    local hl = ensureGeneratorHighlight(model, hlColor)
-    if hl then
-        hl.Enabled = true
-    end
-
-    local textName = "VD_Text_Generator_Enhanced"
-    local existing = part:FindFirstChild(textName)
-    if existing then existing:Destroy() end
-    
-    local bb = makeBillboard("Gen " .. math.floor(pct + 0.5) .. "%", generatorColor, part)
-    if bb then
-        bb.Name = textName
-        
-        local lbl = bb:FindFirstChild("Label")
-        if lbl then
-            local progColor = colorFromProgress(t)
-            lbl.TextColor3 = progColor
-        end
-    end
-end
-
-local function startGeneratorLoop()
-    if generatorLoopConn then return end
-    
-    generatorLoopConn = RunService.Heartbeat:Connect(function()
-        if not generatorESPEnabled then return end
-        
-        for _, entry in pairs(worldReg.Generator) do
-            applyEnhancedGeneratorESP(entry)
-        end
-    end)
-end
-
-local function stopGeneratorLoop()
-    if generatorLoopConn then
-        generatorLoopConn:Disconnect()
-        generatorLoopConn = nil
-    end
-    
-    for _, entry in pairs(worldReg.Generator) do
-        if entry.model then
-            clearGeneratorHighlight(entry.model)
-            if entry.part and entry.part:FindFirstChild("VD_Text_Generator_Enhanced") then
-                entry.part.VD_Text_Generator_Enhanced:Destroy()
-            end
-        end
-    end
-end
-
-VisualTab:CreateToggle({
-    Name = "Generator ESP",
-    CurrentValue = false,
-    Flag = "GeneratorESP",
-    Callback = function(s)
-        generatorESPEnabled = s
-        if s then 
-            startGeneratorLoop() 
-        else 
-            stopGeneratorLoop() 
-        end
-    end
-})
-
-VisualTab:CreateColorPicker({
-    Name = "Generator Color",
-    Color = generatorColor,
-    Flag = "GenCol",
-    Callback = function(c) 
-        generatorColor = c 
-    end
-})
-
--- Buscar generadores al inicio
-task.spawn(function()
-    task.wait(3)
-    refreshRoots()
-end)
-
-local SurvivorTab = Window:CreateTab("Survivors")
-SurvivorTab:CreateSection("Generator Boost")
-
--- Variables
-local genBoostEnabled = false
-local genBoostMultiplier = 1.05
-local repairWatcher = nil
-local isRepairing = false
-local originalValues = {}
-
--- Función para aplicar el boost
-local function applyBoost()
-    if not genBoostEnabled then return end
-    
-    local char = LP.Character
-    if not char then return end
-    
-    -- Guardar valores originales la primera vez
-    if not originalValues.repairboost then
-        originalValues.repairboost = char:GetAttribute("repairboost") or 1.0
-        originalValues.GroupProject = char:GetAttribute("GroupProject") or 0
-        originalValues.gp_applied_by = char:GetAttribute("gp_applied_by") or 0
-    end
-    
-    -- Aplicar nuevos valores
-    pcall(function()
-        char:SetAttribute("repairboost", 1.0 * genBoostMultiplier)
-        char:SetAttribute("GroupProject", 2)
-        char:SetAttribute("gp_applied_by", 2717078872)
-    end)
-end
-
--- Función para restaurar valores normales
-local function restoreBoost()
-    local char = LP.Character
-    if not char then return end
-    
-    pcall(function()
-        if originalValues.repairboost then
-            char:SetAttribute("repairboost", originalValues.repairboost)
-        else
-            char:SetAttribute("repairboost", 1.0)
-        end
-        
-        if originalValues.GroupProject then
-            char:SetAttribute("GroupProject", originalValues.GroupProject)
-        else
-            char:SetAttribute("GroupProject", 0)
-        end
-        
-        if originalValues.gp_applied_by then
-            char:SetAttribute("gp_applied_by", originalValues.gp_applied_by)
-        else
-            char:SetAttribute("gp_applied_by", 0)
-        end
-    end)
-end
-
--- Detectar si está cerca de generador
-local function isNearGenerator()
-    local char = LP.Character
-    if not char then return false end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name:lower():find("generator") then
-            local part = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-            if part then
-                local distance = (hrp.Position - part.Position).Magnitude
-                if distance < 15 then
-                    return true
-                end
-            end
-        end
-    end
-    
-    return false
-end
-
--- Sistema principal
-local function startBoostWatcher()
-    if repairWatcher then return end
-    
-    repairWatcher = RunService.Heartbeat:Connect(function()
-        if not genBoostEnabled then return end
-        
-        local nearGenerator = isNearGenerator()
-        
-        if nearGenerator then
-            if not isRepairing then
-                applyBoost()
-                isRepairing = true
-            end
-        else
-            if isRepairing then
-                restoreBoost()
-                isRepairing = false
-            end
-        end
-    end)
-end
-
-local function stopBoostWatcher()
-    if repairWatcher then
-        repairWatcher:Disconnect()
-        repairWatcher = nil
-    end
-    
-    restoreBoost()
-    isRepairing = false
-end
-
-SurvivorTab:CreateToggle({
-    Name = "Enable Generator Boost",
-    CurrentValue = false,
-    Flag = "GenBoostToggle",
-    Callback = function(state)
-        genBoostEnabled = state
-        if state then
-            startBoostWatcher()
-        else
-            stopBoostWatcher()
-        end
-    end
-})
-
-SurvivorTab:CreateSlider({
-    Name = "Repair Multiplier",
-    Range = {1.00, 3.00},
-    Increment = 0.05,
-    Suffix = "x",
-    CurrentValue = genBoostMultiplier,
-    Flag = "GenBoostValue",
-    Callback = function(value)
-        genBoostMultiplier = value
-        
-        if genBoostEnabled and isRepairing then
-            applyBoost()
-        end
-    end
-})
-
-SurvivorTab:CreateSection("Speed Boost")
-local speedBoostEnabled = false
-local speedBoostValue = 1.25
-
-local function applySpeedBoost(char)
-    if not speedBoostEnabled then return end
-    if not char then return end
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function() hum.WalkSpeed = 16 * speedBoostValue end)
-    end
-end
-
-local function removeSpeedBoost(char)
-    if not char then return end
-
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function() hum.WalkSpeed = 16 end)
-    end
-end
-
+-- Conexión de personaje
 LP.CharacterAdded:Connect(function(char)
     task.wait(0.2)
-    if speedBoostEnabled then
-        applySpeedBoost(char)
+    applySpeedBoost()
+    if genBoostEnabled then
+        applyGeneratorBoost()
     end
 end)
 
-SurvivorTab:CreateToggle({
-    Name = "Enable Speed Boost",
-    CurrentValue = false,
-    Flag = "SpeedBoostToggle",
-    Callback = function(state)
-        speedBoostEnabled = state
-        local char = LP.Character
-
-        if state then
-            if char then applySpeedBoost(char) end
-        else
-            if char then removeSpeedBoost(char) end
-        end
-    end
-})
-
-SurvivorTab:CreateSlider({
-    Name = "Speed Multiplier",
-    Range = {1.00, 2.00},
-    Increment = 0.10,
-    Suffix = "x",
-    CurrentValue = speedBoostValue,
-    Flag = "SpeedBoostValue",
-    Callback = function(v)
-        speedBoostValue = v
-        if speedBoostEnabled and LP.Character then
-            applySpeedBoost(LP.Character)
-        end
-    end
-})
-
--- SkillCheck Perfect
-SurvivorTab:CreateSection("SkillCheck Gen")
-local perfectEnabled = false
-local perfectConn = nil
-
-local function enablePerfectLoop()
-    if perfectConn then return end
-    
-    perfectConn = RunService.Heartbeat:Connect(function()
-        if not perfectEnabled then return end
-        
-        local pg = LP:FindFirstChild("PlayerGui")
-        if not pg then return end
-
-        for _, gui in ipairs(pg:GetChildren()) do
-            local bar, zone, pointer = nil, nil, nil
-            
-            for _, obj in ipairs(gui:GetDescendants()) do
-                if obj:IsA("Frame") or obj:IsA("ImageLabel") then
-                    local size = obj.AbsoluteSize
-                    
-                    if size.X > 150 and size.Y < 80 and not bar then
-                        bar = obj
-                    end
-                    
-                    if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < (bar.AbsoluteSize.X * 0.45) then
-                        zone = obj
-                    end
-                    
-                    if bar and obj.Parent == bar and obj.AbsoluteSize.X > 0 and obj.AbsoluteSize.X < math.max(8, bar.AbsoluteSize.X * 0.06) then
-                        pointer = obj
-                    end
-                end
-            end
-            
-            if bar and zone and pointer then
-                local zoneCenter = zone.AbsolutePosition.X + (zone.AbsoluteSize.X / 2)
-                local barStart = bar.AbsolutePosition.X
-                local barWidth = bar.AbsoluteSize.X
-                
-                if barWidth > 0 then
-                    local perc = (zoneCenter - barStart) / barWidth
-                    perc = clamp(perc, 0, 1)
-                    
-                    pcall(function()
-                        if typeof(pointer.Position) == "UDim2" then
-                            pointer.Position = UDim2.new(perc, 0, pointer.Position.Y.Scale, pointer.Position.Y.Offset)
-                        elseif pointer.Value ~= nil then
-                            pointer.Value = perc
-                        end
-                    end)
-                end
-            end
-        end
-    end)
-end
-
-local function disablePerfectLoop()
-    if perfectConn then
-        perfectConn:Disconnect()
-        perfectConn = nil
-    end
-end
-
-SurvivorTab:CreateToggle({
-    Name = "Enable Perfect Skillcheck Gen",
-    CurrentValue = false,
-    Callback = function(v)
-        perfectEnabled = v
-        if v then enablePerfectLoop() else disablePerfectLoop() end
-    end
-})
-
--- No SkillCheck
-SurvivorTab:CreateSection("No SkillCheck Gen")
-local noSkillEnabled = false
-local noSkillDescConn = nil
-
-local function isSkillObject(obj)
-    if not obj or not obj.Name then return false end
-    local n = obj.Name:lower()
-    return n:find("skill") or n:find("check") or n:find("skillcheck")
-end
-
-local function startNoSkill()
-    if noSkillEnabled then return end
-    noSkillEnabled = true
-
-    local pg = LP:FindFirstChild("PlayerGui")
-    if pg then
-        for _, d in ipairs(pg:GetDescendants()) do
-            if isSkillObject(d) then 
-                pcall(function() d:Destroy() end)
-            end
-        end
-
-        if noSkillDescConn then noSkillDescConn:Disconnect() end
-        noSkillDescConn = pg.DescendantAdded:Connect(function(d)
-            if noSkillEnabled and isSkillObject(d) then 
-                pcall(function() d:Destroy() end)
-            end
-        end)
-    end
-end
-
-local function stopNoSkill()
-    noSkillEnabled = false
-    if noSkillDescConn then
-        noSkillDescConn:Disconnect()
-        noSkillDescConn = nil
-    end
-end
-
-SurvivorTab:CreateToggle({
-    Name = "Enable No Skillchecks Gen",
-    CurrentValue = false,
-    Callback = function(v)
-        if v then startNoSkill() else stopNoSkill() end
-    end
-})
-
--- KILLERS TAB
-local KillerTab = Window:CreateTab("Killers")
-KillerTab:CreateSection("Speed Boost (Killer)")
-
-local killerSpeedEnabled = false
-local killerSpeedValue = 1.3
-
-KillerTab:CreateToggle({
-    Name = "Killer Speed Boost",
-    CurrentValue = false,
-    Callback = function(v)
-        killerSpeedEnabled = v
-        local char = LP.Character
-        if char then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                if v then
-                    pcall(function() humanoid.WalkSpeed = 16 * killerSpeedValue end)
-                else
-                    pcall(function() humanoid.WalkSpeed = 16 end)
-                end
-            end
-        end
-    end
-})
-
-KillerTab:CreateSlider({
-    Name = "Killer Speed Multiplier",
-    Range = {1.0, 2.0},
-    Increment = 0.1,
-    CurrentValue = killerSpeedValue,
-    Callback = function(v)
-        killerSpeedValue = v
-        if killerSpeedEnabled and LP.Character then
-            local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                pcall(function() humanoid.WalkSpeed = 16 * killerSpeedValue end)
-            end
-        end
-    end
-})
-
--- GRAPHICS TAB
-local GraphicsTab = Window:CreateTab("Graphics")
-GraphicsTab:CreateSection("Optimization")
-
--- No Fog
-local nfActive = false
-local nfStore = {conns = {}, tick = nil}
-local nfQueue, nfQueued = {}, {}
-
-local function nfNameHasFog(inst)
-    local n = inst and inst.Name or ""
-    n = string.lower(n)
-    return string.find(n, "fog", 1, true) ~= nil
-end
-
-local function nfHardNuke(o)
-    pcall(function()
-        if o:IsA("ParticleEmitter") then 
-            o.Enabled = false 
-            o.Rate = 0 
-        end
-        o:Destroy()
-    end)
-end
-
-local function nfIsCandidate(inst)
-    if not inst or not inst.Parent then return false end
-    if nfNameHasFog(inst) then return true end
-    if inst:IsA("Clouds") or inst:IsA("Atmosphere") then return true end
-    if inst:IsA("ParticleEmitter") then return true end
-    if inst:IsA("SunRaysEffect") or inst:IsA("BloomEffect") or inst:IsA("DepthOfFieldEffect") then return true end
-    return false
-end
-
-local function nfHandle(inst)
-    if not inst or not inst.Parent then return end
-    if nfNameHasFog(inst) or inst:IsA("Clouds") or inst:IsA("Atmosphere") or inst:IsA("ParticleEmitter") then
-        nfHardNuke(inst)
-        return
-    end
-    if inst:IsA("SunRaysEffect") or inst:IsA("BloomEffect") or inst:IsA("DepthOfFieldEffect") then
-        nfHardNuke(inst)
-        return
-    end
-end
-
-local function nfEnqueueOne(inst)
-    if not nfActive or not nfIsCandidate(inst) or nfQueued[inst] then return end
-    nfQueued[inst] = true
-    table.insert(nfQueue, inst)
-end
-
-local function nfBindWatchers()
-    local c1 = Workspace.DescendantAdded:Connect(function(d) nfEnqueueOne(d) end)
-    local c2 = Lighting.DescendantAdded:Connect(function(d) nfEnqueueOne(d) end)
-    local c3 = ReplicatedStorage.DescendantAdded:Connect(function(d) nfEnqueueOne(d) end)
-    table.insert(nfStore.conns, c1)
-    table.insert(nfStore.conns, c2)
-    table.insert(nfStore.conns, c3)
-end
-
-local function nfStartQueue()
-    if nfStore.tick then nfStore.tick:Disconnect() nfStore.tick = nil end
-    nfStore.tick = RunService.Heartbeat:Connect(function()
-        if not nfActive then return end
-        local t0 = os.clock()
-        while #nfQueue > 0 and (os.clock() - t0) < 0.004 do
-            local inst = table.remove(nfQueue, 1)
-            if inst and inst.Parent then nfHandle(inst) end
-        end
-    end)
-end
-
-local function nfInitialSweep()
-    for _, root in ipairs({Workspace, Lighting, ReplicatedStorage}) do
-        for _, d in ipairs(root:GetDescendants()) do
-            if nfIsCandidate(d) then nfHandle(d) end
-        end
-    end
-end
-
-local function nfEnable()
-    if nfActive then return end
-    nfActive = true
-    nfInitialSweep()
-    nfBindWatchers()
-    nfStartQueue()
-end
-
-local function nfDisable()
-    if not nfActive then return end
-    nfActive = false
-    if nfStore.tick then pcall(function() nfStore.tick:Disconnect() end) nfStore.tick = nil end
-    for _, c in ipairs(nfStore.conns) do pcall(function() c:Disconnect() end) end
-    nfStore.conns = {}
-    nfQueue, nfQueued = {}, {}
-end
-
-GraphicsTab:CreateToggle({
-    Name = "No Fog",
-    CurrentValue = false,
-    Flag = "NoFog",
-    Callback = function(s) 
-        if s then nfEnable() else nfDisable() end
-    end
-})
-
--- No Shadows
-local nsActive = false
-local nsStore = {lighting = {}, parts = {}, conns = {}}
-local nsQueue, nsQueued, nsProcessed = {}, {}, {}
-
-local function nsEnable()
-    if nsActive then return end
-    nsActive = true
-    
-    pcall(function()
-        Lighting.GlobalShadows = false
-    end)
-    
-    for _, part in ipairs(Workspace:GetDescendants()) do
-        if part:IsA("BasePart") then
-            nsStore.parts[part] = part.CastShadow
-            pcall(function() part.CastShadow = false end)
-        end
-    end
-end
-
-local function nsDisable()
-    if not nsActive then return end
-    nsActive = false
-    
-    pcall(function()
-        Lighting.GlobalShadows = true
-    end)
-    
-    for part, value in pairs(nsStore.parts) do
-        if part and part.Parent then
-            pcall(function() part.CastShadow = value end)
-        end
-    end
-    nsStore.parts = {}
-end
-
-GraphicsTab:CreateToggle({
-    Name = "No Shadows",
-    CurrentValue = false,
-    Flag = "NoShadows",
-    Callback = function(s) 
-        if s then nsEnable() else nsDisable() end
-    end
-})
-
--- MISCELLANEOUS
-local MiscTab = Window:CreateTab("Misc")
-MiscTab:CreateSection("Utilities")
-
-local autoRespawnEnabled = false
-MiscTab:CreateToggle({
-    Name = "Auto Respawn",
-    CurrentValue = false,
-    Callback = function(v)
-        autoRespawnEnabled = v
-    end
-})
-
--- Cleanup function
-local function cleanup()
-    -- Detener todos los loops
-    if espLoopConn then espLoopConn:Disconnect() end
-    if generatorLoopConn then generatorLoopConn:Disconnect() end
-    if repairWatcher then repairWatcher:Disconnect() end  -- CORREGIDO: era repairConnection
-    if perfectConn then perfectConn:Disconnect() end
-    
-    -- Limpiar ESP
-    stopESPLoop()
-    stopGeneratorLoop()
-    stopBoostWatcher()  -- CORREGIDO: era stopRepairWatcher
-    
-    -- Limpiar No Fog/Shadows
-    nfDisable()
-    nsDisable()
-    
-    -- Restaurar velocidad
-    local char = LP.Character
-    if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            pcall(function() humanoid.WalkSpeed = 16 end)
-        end
-    end
-end
+-- Cargar configuración y notificar
+task.spawn(function()
+    task.wait(2)
+    Rayfield:LoadConfiguration()
+    Rayfield:Notify({
+        Title = "LoreOnTop",
+        Content = "Script cargado",
+        Duration = 5,
+        Image = "rbxassetid://4483345998"
+    })
+end)
 
 -- Conectar cleanup
-game:GetService("UserInputService").WindowFocusReleased:Connect(cleanup)
-
--- Cargar configuración y notificar
-Rayfield:LoadConfiguration()
-Rayfield:Notify({
-    Title = "LoreOnTop",
-    Content = "Script loaded",
-    Duration = 5,
-    Image = "rbxassetid://4483345998"
-})
+game:GetService("UserInputService").WindowFocusReleased:Connect(function()
+    stopESPLoop()
+    stopGeneratorESPLoop()
+end)
