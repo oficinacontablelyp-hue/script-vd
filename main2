@@ -177,7 +177,7 @@ local function isInLobby(p)
     if not p.Character then return true end
     
     -- Verificar si está en un área de lobby
-    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+    local hrp = p.Character:FindFirstChild("HumanoidRootPart")  
     if hrp then
         local pos = hrp.Position
         if pos.Y < -100 then
@@ -483,18 +483,6 @@ VisualTab:CreateToggle({
     end
 })
 
-VisualTab:CreateToggle({
-    Name = "Mostrar Distancia",
-    CurrentValue = showDistance,
-    Flag = "ShowDistance",
-    Callback = function(s)
-        showDistance = s
-        if playerESPEnabled or nametagsEnabled then
-            forceUpdateAllPlayers() -- Actualizar todos con nuevo formato
-        end
-    end
-})
-
 VisualTab:CreateButton({
     Name = "Forzar Actualización ESP",
     Callback = function()
@@ -541,6 +529,18 @@ VisualTab:CreateColorPicker({
             forceUpdateAllPlayers()
         end
     end
+})
+
+VisualTab:CreateToggle({
+  Name = "Mostrar Distancia",
+  CurrentValue = showDistance,
+  Flag = "showDistance",
+  Callback = function(s)
+    showDistance = s
+    if playerESPEnabled or nametagsEnabled then
+      forceUpdateAllPlayers()
+    end
+  end
 })
 
 VisualTab:CreateSlider({
@@ -591,12 +591,59 @@ Players.PlayerRemoving:Connect(function(p)
     unwatchPlayer(p)
 end)
 
--- GENERATOR ESP (igual que el original pero funcional)
+-- GENERATOR ESP 
 VisualTab:CreateSection("Generators")
 
 local generatorESPEnabled = false
 local generatorLoopConn = nil
 local worldReg = {Generator = {}}
+
+local function ensureGeneratorHighlight(model, color)
+    if not (model and model:IsA("Model") and alive(model)) then return nil end
+    
+    local hl = model:FindFirstChild("Generator_Highlight")
+    if not hl then
+        local success, result = pcall(function()
+            local h = Instance.new("Highlight")
+            h.Name = "Generator_Highlight"
+            h.Adornee = model
+            h.FillTransparency = 0.7
+            h.OutlineTransparency = 0.2
+            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            h.FillColor = color
+            h.OutlineColor = color
+            h.Parent = model
+            return h
+        end)
+        if success then 
+            hl = result
+            table.insert(espObjects, hl)
+        else 
+            return nil 
+        end
+    else
+        hl.FillColor = color
+        hl.OutlineColor = color
+        hl.FillTransparency = 0.7
+        hl.OutlineTransparency = 0.2
+        hl.Enabled = true
+    end
+    return hl
+end
+
+local function clearGeneratorHighlight(model)
+    if model and model:FindFirstChild("Generator_Highlight") then
+        local hl = model.Generator_Highlight
+        hl:Destroy()
+        -- Remover de la lista
+        for i, obj in ipairs(espObjects) do
+            if obj == hl then
+                table.remove(espObjects, i)
+                break
+            end
+        end
+    end
+end
 
 local function genProgress(m)
     local p = tonumber(m:GetAttribute("RepairProgress")) or 0
@@ -655,10 +702,9 @@ local function applyEnhancedGeneratorESP(entry)
     local t = clamp(pct / 100, 0, 1)
 
     local hlColor = (pct >= 100) and Color3.fromRGB(0, 255, 0) or generatorColor
-    local hl = ensureHighlight(model, hlColor)
+    
+    local hl = ensureGeneratorHighlight(model, hlColor)
     if hl then
-        hl.FillTransparency = 0.7
-        hl.OutlineTransparency = 0.2
         hl.Enabled = true
     end
 
@@ -698,7 +744,7 @@ local function stopGeneratorLoop()
     
     for _, entry in pairs(worldReg.Generator) do
         if entry.model then
-            clearHighlight(entry.model)
+            clearGeneratorHighlight(entry.model)
             if entry.part and entry.part:FindFirstChild("VD_Text_Generator_Enhanced") then
                 entry.part.VD_Text_Generator_Enhanced:Destroy()
             end
