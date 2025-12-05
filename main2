@@ -13,6 +13,8 @@ local playerESPEnabled = false
 local nametagsEnabled = false
 local showDistance = false
 local maxDistance = 500
+local hitboxExpanderEnabled = false
+local hitboxMultiplier = 1.5
 
 -- Colores
 local survivorColor = Color3.fromRGB(0, 255, 0)
@@ -1268,6 +1270,67 @@ SurvivorTab:CreateToggle({
     end
 })
 
+-- Sección Healing
+SurvivorTab:CreateSection("Healing")
+
+SurvivorTab:CreateToggle({
+    Name = "Insta Heal",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            -- Activar insta heal
+            local char = LP.Character
+            if char then
+                char:SetAttribute("isHealing", true)
+                char:SetAttribute("HealProgress", 100)
+                char:SetAttribute("IsBeingHealed", true)
+            end
+        else
+            -- Desactivar
+            local char = LP.Character
+            if char then
+                char:SetAttribute("isHealing", nil)
+                char:SetAttribute("HealProgress", nil)
+                char:SetAttribute("IsBeingHealed", nil)
+            end
+        end
+    end
+})
+
+-- Sección Anti-Ralentización
+SurvivorTab:CreateSection("Anti-Ralentización")
+
+SurvivorTab:CreateToggle({
+    Name = "Anti-Ralentización",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            -- Activar anti-ralentización
+            local char = LP.Character
+            if char then
+                char:SetAttribute("Immobile", false)
+                
+                -- Monitorear constantemente
+                RunService.Heartbeat:Connect(function()
+                    if char then
+                        char:SetAttribute("Immobile", false)
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            humanoid.WalkSpeed = 16 * speedBoostValue
+                        end
+                    end
+                end)
+            end
+        else
+            -- Desactivar
+            local char = LP.Character
+            if char then
+                char:SetAttribute("Immobile", nil)
+            end
+        end
+    end
+})
+
 -- ============================================
 -- PESTAÑA KILLERS
 -- ============================================
@@ -1294,6 +1357,116 @@ KillerTab:CreateSlider({
         killerSpeedValue = v
         if killerSpeedEnabled then
             applySpeedBoost()
+        end
+    end
+})
+
+-- Sección Anti-Stun
+KillerTab:CreateSection("Anti-Stun")
+
+KillerTab:CreateToggle({
+    Name = "Anti-Stun",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            -- Activar anti-stun
+            local char = LP.Character
+            if char then
+                char:SetAttribute("IsStunned", false)
+                
+                -- Monitorear constantemente para evitar stun
+                RunService.Heartbeat:Connect(function()
+                    if char then
+                        char:SetAttribute("IsStunned", false)
+                    end
+                end)
+            end
+        else
+            -- Desactivar
+            local char = LP.Character
+            if char then
+                char:SetAttribute("IsStunned", nil)
+            end
+        end
+    end
+})
+
+-- Sección Hitbox Expander
+KillerTab:CreateSection("Hitbox Expander")
+
+local hitboxExpanderEnabled = false
+local hitboxMultiplier = 1.5
+
+KillerTab:CreateToggle({
+    Name = "Hitbox Expander (Survivors)",
+    CurrentValue = false,
+    Callback = function(v)
+        hitboxExpanderEnabled = v
+        if v then
+            -- Expandir hitbox de todos los survivors
+            for _, player in ipairs(Players:GetPlayers()) do
+                if getRole(player) == "Survivor" and player.Character then
+                    for _, part in ipairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") then
+                            part.Size = part.Size * hitboxMultiplier
+                        end
+                    end
+                end
+            end
+        else
+            -- Restaurar tamaño normal
+            for _, player in ipairs(Players:GetPlayers()) do
+                if getRole(player) == "Survivor" and player.Character then
+                    for _, part in ipairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") then
+                            part.Size = part.Size / hitboxMultiplier
+                        end
+                    end
+                end
+            end
+        end
+    end
+})
+
+KillerTab:CreateSlider({
+    Name = "Hitbox Multiplier",
+    Range = {1.0, 10.0},
+    Increment = 0.1,
+    CurrentValue = hitboxMultiplier,
+    Callback = function(v)
+        hitboxMultiplier = v
+        if hitboxExpanderEnabled then
+            -- Re-aplicar con nuevo multiplicador
+            for _, player in ipairs(Players:GetPlayers()) do
+                if getRole(player) == "Survivor" and player.Character then
+                    for _, part in ipairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") then
+                            part.Size = part.OriginalSize * hitboxMultiplier
+                        end
+                    end
+                end
+            end
+        end
+    end
+})
+
+-- Sección Full Break Motor
+KillerTab:CreateSection("Full Break Motor")
+
+KillerTab:CreateToggle({
+    Name = "Full Break Motor",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            -- Romper generadores al instante
+            RunService.Heartbeat:Connect(function()
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("Model") and obj.Name:lower():find("generator") then
+                        obj:SetAttribute("RepairProgress", 0)
+                        obj:SetAttribute("ProgressBar", 0)
+                    end
+                end
+            end)
         end
     end
 })
