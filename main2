@@ -10,11 +10,12 @@ local LP = Players.LocalPlayer
 
 -- Variables ESP
 local playerESPEnabled = false
-local nametagsEnabled = false
+local nametagsEnabled = false 
 local showDistance = false
 local maxDistance = 500
 local hitboxExpanderEnabled = false
 local hitboxMultiplier = 1.5
+local hitboxTransparency = 0.9
 
 -- Colores
 local survivorColor = Color3.fromRGB(0, 255, 0)
@@ -205,7 +206,7 @@ end
 
 local espLoopConn = nil
 local lastESPUpdate = 0
-local ESP_UPDATE_INTERVAL = 0.1
+local ESP_UPDATE_INTERVAL = 0.08  -- Más rápido para mejor actualización
 
 local function cleanPlayerESP(p)
     if not p then return end
@@ -250,22 +251,42 @@ local function applyOnePlayerESP(p)
         if nametagsEnabled and validPart(head) then
             local text = p.Name
             
-            if showDistance and not isSpectator(p) and not isInLobby(p) and hrp and LP.Character then
+            -- Verificar si debemos mostrar distancia
+            local shouldShowDistance = showDistance and not isSpectator(p) and not isInLobby(p)
+            local isWithinDistance = true
+            
+            if shouldShowDistance and hrp and LP.Character and LP.Character.Parent then
                 local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
-                if myHrp then
-                    local distance = math.floor(dist(hrp.Position, myHrp.Position))
+                if myHrp and myHrp.Parent then
+                    local distance = math.floor((hrp.Position - myHrp.Position).Magnitude)
+                    
                     if distance <= maxDistance then
-                        text = text .. " - " .. distance .. "m"
+                        text = text .. " [" .. distance .. "m]"
+                    else
+                        -- Si está fuera de rango, no mostrar ESP
+                        isWithinDistance = false
+                        if head:FindFirstChild("ESP_Tag") then
+                            head.ESP_Tag.Enabled = false
+                        end
+                        if playerESPEnabled then
+                            clearHighlight(character)
+                        end
                     end
                 end
             end
             
-            local tag = makeBillboard(text, color, head)
-            if tag then
-                tag.Enabled = true
+            -- Solo mostrar ESP si está dentro del rango de distancia
+            if isWithinDistance then
+                local tag = makeBillboard(text, color, head)
+                if tag then
+                    tag.Enabled = true
+                    tag.Adornee = head
+                end
             end
         elseif head and head:FindFirstChild("ESP_Tag") then
-            head.ESP_Tag.Enabled = false
+            if not nametagsEnabled then
+                head.ESP_Tag.Enabled = false
+            end
         end
         
         if not playerCache[p] then 
@@ -301,6 +322,29 @@ local function processUpdateQueue()
     isProcessing = false
 end
 
+local function cleanupFarPlayers()
+    if not (playerESPEnabled or nametagsEnabled) then return end
+    if not LP.Character then return end
+    
+    local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            
+            if hrp then
+                local distance = (hrp.Position - myHrp.Position).Magnitude
+                
+                -- Si está fuera del rango máximo y showDistance está activado
+                if showDistance and distance > maxDistance then
+                    cleanPlayerESP(player)
+                end
+            end
+        end
+    end
+end
+
 local function startESPLoop()
     if espLoopConn then 
         espLoopConn:Disconnect()
@@ -313,6 +357,7 @@ local function startESPLoop()
         local now = tick()
         if now - lastESPUpdate < ESP_UPDATE_INTERVAL then 
             processUpdateQueue()
+            cleanupFarPlayers()  -- Limpiar jugadores lejanos
             return 
         end
         lastESPUpdate = now
@@ -326,6 +371,7 @@ local function startESPLoop()
         end
         
         processUpdateQueue()
+        cleanupFarPlayers()  -- Limpiar jugadores lejanos
     end)
 end
 
@@ -361,6 +407,7 @@ local function forceUpdateAllPlayers()
             applyOnePlayerESP(player)
         end
     end
+    cleanupFarPlayers()  -- Limpiar jugadores lejanos también
 end
 
 local function watchPlayer(p)
@@ -1258,7 +1305,7 @@ SurvivorTab:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         perfectSkillEnabled = v
-        if v then enablePerfectLoop() else disablePerfectLoop() end
+        if v then startPerfectSkillCheck() else stopPerfectSkillCheck() end
     end
 })
 
@@ -1391,35 +1438,118 @@ KillerTab:CreateToggle({
     end
 })
 
--- Sección Hitbox Expander
+-- Sección Hitbox Expander (Invisible)
 KillerTab:CreateSection("Hitbox Expander")
 
-local hitboxExpanderEnabled = false
-local hitboxMultiplier = 1.5
+-- Función para crear hitbox invisible
+local function createInvisibleHitbox(character, multiplier)
+    if not character or not character.Parent then return end
+    
+    -- Buscar si ya existe una hitbox
+    local existingHitbox = character:FindFirstChild("InvisibleHitbox")
+    if existingHitbox then
+        existingHitbox:Destroy()
+    end
+    
+    -- Crear una parte invisible para la hitbox
+    local hitboxPart = Instance.new("Part")
+    hitboxPart.Name = "InvisibleHitbox"
+    hitboxPart.Anchored = false
+    hitboxPart.CanCollide = false
+    hitboxPart.Transparency = hitboxTransparency  -- Usar la variable de transparencia
+    hitboxPart.Color = Color3.fromRGB(255, 0, 0)  -- Rojo pero casi transparente
+    hitboxPart.Material = Enum.Material.Neon
+    
+    -- Usar el tamaño del torso o humanoidrootpart como base
+    local basePart = character:FindFirstChild("HumanoidRootPart") or 
+                     character:FindFirstChild("Torso") or 
+                     character:FindFirstChild("UpperTorso")
+    
+    if basePart then
+        hitboxPart.Size = basePart.Size * multiplier
+        hitboxPart.CFrame = basePart.CFrame
+        
+        -- Conectar para que siga al personaje
+        local weld = Instance.new("Weld")
+        weld.Part0 = basePart
+        weld.Part1 = hitboxPart
+        weld.C0 = CFrame.new(0, 0, 0)
+        weld.Parent = hitboxPart
+    else
+        hitboxPart.Size = Vector3.new(4, 6, 2) * multiplier
+        hitboxPart.CFrame = character:GetPivot()
+    end
+    
+    -- Configurar propiedades para que sea solo hitbox
+    hitboxPart.CastShadow = false
+    hitboxPart.Locked = true
+    hitboxPart.Parent = character
+    
+    return hitboxPart
+end
 
 KillerTab:CreateToggle({
-    Name = "Hitbox Expander (Survivors)",
+    Name = "Hitbox Expander",
     CurrentValue = false,
     Callback = function(v)
         hitboxExpanderEnabled = v
         if v then
-            -- Expandir hitbox de todos los survivors
+            -- Crear hitbox invisible para todos los survivors
             for _, player in ipairs(Players:GetPlayers()) do
                 if getRole(player) == "Survivor" and player.Character then
-                    for _, part in ipairs(player.Character:GetChildren()) do
-                        if part:IsA("BasePart") then
-                            part.Size = part.Size * hitboxMultiplier
-                        end
+                    createInvisibleHitbox(player.Character, hitboxMultiplier)
+                end
+            end
+            
+            -- Conectar para cuando nuevos survivors aparezcan
+            Players.PlayerAdded:Connect(function(player)
+                player.CharacterAdded:Connect(function(character)
+                    task.wait(1)  -- Esperar a que cargue
+                    if hitboxExpanderEnabled and getRole(player) == "Survivor" then
+                        createInvisibleHitbox(character, hitboxMultiplier)
                     end
+                end)
+            end)
+            
+            -- Conectar para survivors existentes
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LP then
+                    player.CharacterAdded:Connect(function(character)
+                        task.wait(1)
+                        if hitboxExpanderEnabled and getRole(player) == "Survivor" then
+                            createInvisibleHitbox(character, hitboxMultiplier)
+                        end
+                    end)
                 end
             end
         else
-            -- Restaurar tamaño normal
+            -- Eliminar todas las hitbox invisibles
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player.Character and player.Character:FindFirstChild("InvisibleHitbox") then
+                    player.Character.InvisibleHitbox:Destroy()
+                end
+            end
+        end
+    end
+})
+
+KillerTab:CreateSlider({
+    Name = "Hitbox Size Multiplier",
+    Range = {1.0, 5.0},
+    Increment = 0.1,
+    CurrentValue = hitboxMultiplier,
+    Callback = function(v)
+        hitboxMultiplier = v
+        if hitboxExpanderEnabled then
+            -- Actualizar tamaño de todas las hitbox existentes
             for _, player in ipairs(Players:GetPlayers()) do
                 if getRole(player) == "Survivor" and player.Character then
-                    for _, part in ipairs(player.Character:GetChildren()) do
-                        if part:IsA("BasePart") then
-                            part.Size = part.Size / hitboxMultiplier
+                    local hitbox = player.Character:FindFirstChild("InvisibleHitbox")
+                    if hitbox then
+                        local basePart = player.Character:FindFirstChild("HumanoidRootPart") or 
+                                       player.Character:FindFirstChild("Torso")
+                        if basePart then
+                            hitbox.Size = basePart.Size * hitboxMultiplier
                         end
                     end
                 end
@@ -1429,19 +1559,22 @@ KillerTab:CreateToggle({
 })
 
 KillerTab:CreateSlider({
-    Name = "Hitbox Multiplier",
-    Range = {1.0, 10.0},
+    Name = "Hitbox Transparency",
+    Range = {0.1, 1.0},
     Increment = 0.1,
-    CurrentValue = hitboxMultiplier,
+    CurrentValue = hitboxTransparency,
     Callback = function(v)
-        hitboxMultiplier = v
+        hitboxTransparency = v
         if hitboxExpanderEnabled then
-            -- Re-aplicar con nuevo multiplicador
+            -- Actualizar transparencia de todas las hitbox
             for _, player in ipairs(Players:GetPlayers()) do
                 if getRole(player) == "Survivor" and player.Character then
-                    for _, part in ipairs(player.Character:GetChildren()) do
-                        if part:IsA("BasePart") then
-                            part.Size = part.OriginalSize * hitboxMultiplier
+                    local hitbox = player.Character:FindFirstChild("InvisibleHitbox")
+                    if hitbox then
+                        hitbox.Transparency = hitboxTransparency
+                        
+                        if hitboxTransparency >= 0.9 then
+                            hitbox.Transparency = 1
                         end
                     end
                 end
@@ -1453,20 +1586,105 @@ KillerTab:CreateSlider({
 -- Sección Full Break Motor
 KillerTab:CreateSection("Full Break Motor")
 
+local fullBreakEnabled = false
+local breakConnection = nil
+local generatorStates = {}
+
+local function setupGeneratorMonitor(generator)
+    if generatorStates[generator] then return end
+    
+    generatorStates[generator] = {
+        lastProgress = generator:GetAttribute("RepairProgress") or 1,
+        lastCheck = tick()
+    }
+    
+    -- Monitorear cambios en el atributo RepairProgress
+    generator:GetAttributeChangedSignal("RepairProgress"):Connect(function()
+        if not fullBreakEnabled or getRole(LP) ~= "Killer" then return end
+        
+        local currentProgress = generator:GetAttribute("RepairProgress") or 1
+        local lastProgress = generatorStates[generator].lastProgress
+        
+        if currentProgress < lastProgress then
+          
+            if tick() - generatorStates[generator].lastCheck < 2 then
+              
+                if LP.Character then
+                    local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+                    local genPart = generator.PrimaryPart or generator:FindFirstChildWhichIsA("BasePart")
+                    
+                    if hrp and genPart and (hrp.Position - genPart.Position).Magnitude < 15 then
+                      
+                        task.wait(0.1)
+                        
+                        pcall(function()
+                            generator:SetAttribute("RepairProgress", 0)
+                            generator:SetAttribute("ProgressBar", 0)
+                            
+                            -- Efecto visual/sonoro opcional
+                            if genPart then
+                                local sound = Instance.new("Sound")
+                                sound.SoundId = "rbxassetid://9114822715"
+                                sound.Volume = 0.5
+                                sound.Parent = genPart
+                                sound:Play()
+                                game:GetService("Debris"):AddItem(sound, 2)
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+        
+        -- Actualizar estado
+        generatorStates[generator].lastProgress = currentProgress
+        generatorStates[generator].lastCheck = tick()
+    end)
+end
+
 KillerTab:CreateToggle({
     Name = "Full Break Motor",
     CurrentValue = false,
     Callback = function(v)
+        fullBreakEnabled = v
+        
         if v then
-            -- Romper generadores al instante
-            RunService.Heartbeat:Connect(function()
-                for _, obj in ipairs(Workspace:GetDescendants()) do
-                    if obj:IsA("Model") and obj.Name:lower():find("generator") then
-                        obj:SetAttribute("RepairProgress", 0)
-                        obj:SetAttribute("ProgressBar", 0)
-                    end
+            -- Configurar monitores para generadores existentes
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("Model") and obj.Name:lower():find("generator") then
+                    setupGeneratorMonitor(obj)
+                end
+            end
+            
+            -- Monitorear nuevos generadores
+            local descAdded
+            descAdded = Workspace.DescendantAdded:Connect(function(obj)
+                if obj:IsA("Model") and obj.Name:lower():find("generator") then
+                    setupGeneratorMonitor(obj)
                 end
             end)
+            
+            breakConnection = descAdded
+            
+            Rayfield:Notify({
+                Title = "Full Break Activado",
+                Content = "Patea generadores para romperlos completamente",
+                Duration = 3
+            })
+            
+        else
+            -- Limpiar
+            if breakConnection then
+                breakConnection:Disconnect()
+                breakConnection = nil
+            end
+            generatorStates = {}
+            
+            Rayfield:Notify({
+                Title = "Full Break Desactivado",
+                Content = "Daño normal activado",
+                Duration = 3
+            })
         end
     end
 })
@@ -1597,7 +1815,7 @@ task.spawn(function()
     Rayfield:LoadConfiguration()
     Rayfield:Notify({
         Title = "LoreOnTop",
-        Content = "Script cargado",
+        Content = "Script cargado y optimizado",
         Duration = 5,
         Image = "rbxassetid://4483345998"
     })
