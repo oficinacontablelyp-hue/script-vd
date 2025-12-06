@@ -783,62 +783,163 @@ local genBoostEnabled = false
 local genBoostMultiplier = 2.0
 local genBoostConnection = nil
 local originalValues = {}
+local generatorScripts = {}
 
-local function applyRealGeneratorBoost()
-    if not genBoostEnabled then return end
+-- Función para aplicar boost REAL a los generadores
+local function applyGeneratorBoost()
+    if not genBoostEnabled or not LP.Character then return end
     
+    -- Aplicar atributos de boost al personaje
+    pcall(function()
+        LP.Character:SetAttribute("repairboost", genBoostMultiplier)
+        LP.Character:SetAttribute("GroupProject", 3)  -- Máximo posible
+        LP.Character:SetAttribute("gp_applied_by", LP.UserId)  -- Tu ID
+        
+        -- También forzar otros atributos relacionados
+        LP.Character:SetAttribute("RepairSpeedMultiplier", genBoostMultiplier)
+        LP.Character:SetAttribute("GeneratorEfficiency", genBoostMultiplier)
+    end)
+    
+    -- Aplicar boost directamente a los generadores
     for _, generator in ipairs(Workspace:GetDescendants()) do
         if generator:IsA("Model") and (generator.Name:lower():find("generator") or generator.Name:lower():find("gen_")) then
             
+            -- Modificar atributos del generador
             pcall(function()
-                local currentProgress = generator:GetAttribute("Progress") or 
-                                      generator:GetAttribute("progress") or 
-                                      generator:GetAttribute("CurrentProgress") or 0
-                
-                if type(currentProgress) == "number" and currentProgress < 100 then
-                    local newProgress = currentProgress + (0.5 * genBoostMultiplier)
-                    generator:SetAttribute("Progress", newProgress)
-                    generator:SetAttribute("progress", newProgress)
-                    generator:SetAttribute("CurrentProgress", newProgress)
-                end
-                
                 generator:SetAttribute("RepairSpeed", genBoostMultiplier)
-                generator:SetAttribute("repairSpeed", genBoostMultiplier)
-                generator:SetAttribute("SpeedMultiplier", genBoostMultiplier)
+                generator:SetAttribute("Efficiency", genBoostMultiplier)
+                generator:SetAttribute("GroupRepair", true)
+                generator:SetAttribute("MaxPlayers", 3)
             end)
             
+            -- Modificar scripts del generador para boost REAL
             for _, script in ipairs(generator:GetDescendants()) do
-                if script:IsA("Script") or script:IsA("ModuleScript") or script:IsA("LocalScript") then
+                if script:IsA("Script") or script:IsA("ModuleScript") then
+                    if not generatorScripts[script] then
+                        pcall(function()
+                            local env = getfenv(script)
+                            
+                            -- Guardar valores originales
+                            if env.repairSpeed and type(env.repairSpeed) == "number" then
+                                originalValues[script] = env.repairSpeed
+                                env.repairSpeed = env.repairSpeed * genBoostMultiplier
+                            end
+                            
+                            if env.RepairSpeed and type(env.RepairSpeed) == "number" then
+                                originalValues[script] = env.RepairSpeed
+                                env.RepairSpeed = env.RepairSpeed * genBoostMultiplier
+                            end
+                            
+                            if env.repairTime and type(env.repairTime) == "number" then
+                                originalValues[script] = env.repairTime
+                                env.repairTime = env.repairTime / genBoostMultiplier
+                            end
+                            
+                            if env.progressIncrement and type(env.progressIncrement) == "number" then
+                                originalValues[script] = env.progressIncrement
+                                env.progressIncrement = env.progressIncrement * genBoostMultiplier
+                            end
+                            
+                            -- Interceptar función de progreso
+                            if env.addProgress then
+                                local originalAddProgress = env.addProgress
+                                env.addProgress = function(amount, ...)
+                                    if genBoostEnabled then
+                                        amount = amount * genBoostMultiplier
+                                    end
+                                    return originalAddProgress(amount, ...)
+                                end
+                            end
+                        end)
+                        generatorScripts[script] = true
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Interceptar eventos de reparación
+local function interceptRepairEvents()
+    -- Buscar RemoteEvents de reparación
+    for _, obj in ipairs(game:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            local nameLower = obj.Name:lower()
+            if nameLower:find("repair") or nameLower:find("generator") or nameLower:find("progress") then
+                
+                if not originalValues[obj] then
+                    originalValues[obj] = obj.FireServer
+                    
+                    obj.FireServer = newcclosure(function(self, ...)
+                        local args = {...}
+                        
+                        if genBoostEnabled and #args >= 2 then
+                            local modifiedArgs = {}
+                            
+                            for i, arg in ipairs(args) do
+                                if type(arg) == "number" and i >= 2 then
+                                    -- Multiplicar valores de progreso
+                                    modifiedArgs[i] = arg * genBoostMultiplier
+                                elseif type(arg) == "table" then
+                                    -- Modificar tablas con valores de reparación
+                                    local modifiedTable = {}
+                                    for k, v in pairs(arg) do
+                                        if (k == "progress" or k == "Progress" or k == "amount" or 
+                                            k == "speed" or k == "repairSpeed") and type(v) == "number" then
+                                            modifiedTable[k] = v * genBoostMultiplier
+                                        else
+                                            modifiedTable[k] = v
+                                        end
+                                    end
+                                    modifiedArgs[i] = modifiedTable
+                                else
+                                    modifiedArgs[i] = arg
+                                end
+                            end
+                            
+                            return originalValues[obj](self, unpack(modifiedArgs))
+                        end
+                        
+                        return originalValues[obj](self, ...)
+                    end)
+                end
+            end
+        end
+    end
+end
+
+-- Forzar progreso rápido en generadores
+local function forceFastProgress()
+    if not genBoostEnabled then return end
+    
+    for _, generator in ipairs(Workspace:GetDescendants()) do
+        if generator:IsA("Model") and generator.Name:lower():find("generator") then
+            
+            -- Aumentar progreso directamente
+            pcall(function()
+                local currentProgress = generator:GetAttribute("Progress") or 
+                                      generator:GetAttribute("progress") or 0
+                
+                if type(currentProgress) == "number" and currentProgress < 100 then
+                    local increment = 0.8 * genBoostMultiplier
+                    generator:SetAttribute("Progress", math.min(100, currentProgress + increment))
+                    generator:SetAttribute("progress", math.min(100, currentProgress + increment))
+                end
+            end)
+            
+            -- Modificar scripts en tiempo real
+            for _, script in ipairs(generator:GetDescendants()) do
+                if script:IsA("Script") then
                     pcall(function()
                         local env = getfenv(script)
                         
-                        if env.repairSpeed and type(env.repairSpeed) == "number" then
-                            if not originalValues[script] then
-                                originalValues[script] = env.repairSpeed
-                            end
-                            env.repairSpeed = originalValues[script] * genBoostMultiplier
-                        end
-                        
-                        if env.RepairSpeed and type(env.RepairSpeed) == "number" then
-                            if not originalValues[script] then
-                                originalValues[script] = env.RepairSpeed
-                            end
-                            env.RepairSpeed = originalValues[script] * genBoostMultiplier
-                        end
-                        
+                        -- Forzar progreso rápido
                         if env.progress and type(env.progress) == "number" then
-                            env.progress = math.min(100, env.progress + (0.3 * genBoostMultiplier))
+                            env.progress = math.min(100, env.progress + (0.5 * genBoostMultiplier))
                         end
                         
-                        if env.Progress and type(env.Progress) == "number" then
-                            env.Progress = math.min(100, env.Progress + (0.3 * genBoostMultiplier))
-                        end
-                        
-                        if env.repairTime and type(env.repairTime) == "number" then
-                            if not originalValues[script] then
-                                originalValues[script] = env.repairTime
-                            end
-                            env.repairTime = originalValues[script] / genBoostMultiplier
+                        if env.currentProgress and type(env.currentProgress) == "number" then
+                            env.currentProgress = math.min(100, env.currentProgress + (0.5 * genBoostMultiplier))
                         end
                     end)
                 end
@@ -847,69 +948,14 @@ local function applyRealGeneratorBoost()
     end
 end
 
-local function interceptPlayerRepair()
-    if not LP.Character then return end
-    
-    for _, tool in ipairs(LP.Character:GetChildren()) do
-        if tool:IsA("Tool") then
-            local toolName = tool.Name:lower()
-            if toolName:find("repair") or toolName:find("tool") or toolName:find("kit") then
-                
-                for _, script in ipairs(tool:GetDescendants()) do
-                    if script:IsA("Script") then
-                        pcall(function()
-                            local env = getfenv(script)
-                            
-                            if env.repair then
-                                local originalRepair = env.repair
-                                env.repair = function(...)
-                                    if genBoostEnabled then
-                                        task.spawn(function()
-                                            for i = 1, 20 do
-                                                applyRealGeneratorBoost()
-                                                task.wait(0.1)
-                                            end
-                                        end)
-                                    end
-                                    return originalRepair(...)
-                                end
-                            end
-                        end)
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function startGenBoostWatcher()
-    if genBoostConnection then return end
-    
-    genBoostConnection = RunService.Heartbeat:Connect(function()
-        if genBoostEnabled then
-            applyRealGeneratorBoost()
-            interceptPlayerRepair()
-            
-            pcall(function()
-                if LP.Character then
-                    LP.Character:SetAttribute("RepairBoost", genBoostMultiplier)
-                    LP.Character:SetAttribute("GeneratorSpeed", genBoostMultiplier)
-                    
-                    local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
-                    if humanoid then
-                        humanoid:SetAttribute("ActionSpeed", genBoostMultiplier)
-                    end
-                end
-            end)
-        end
-    end)
-end
-
-local function removeGenBoost()
+-- Función para restaurar valores originales
+local function removeGeneratorBoost()
+    -- Restaurar scripts
     for script, originalValue in pairs(originalValues) do
-        if script.Parent then
+        if script.Parent and (script:IsA("Script") or script:IsA("ModuleScript")) then
             pcall(function()
                 local env = getfenv(script)
+                
                 if env.repairSpeed then
                     env.repairSpeed = originalValue
                 end
@@ -920,22 +966,49 @@ local function removeGenBoost()
                     env.repairTime = originalValue
                 end
             end)
+        elseif script:IsA("RemoteEvent") then
+            script.FireServer = originalValue
         end
     end
     
+    -- Restaurar atributos del personaje
     pcall(function()
         if LP.Character then
-            LP.Character:SetAttribute("RepairBoost", nil)
-            LP.Character:SetAttribute("GeneratorSpeed", nil)
-            
-            local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid:SetAttribute("ActionSpeed", nil)
-            end
+            LP.Character:SetAttribute("repairboost", 1.0)
+            LP.Character:SetAttribute("GroupProject", 0)
+            LP.Character:SetAttribute("gp_applied_by", 0)
+            LP.Character:SetAttribute("RepairSpeedMultiplier", nil)
+            LP.Character:SetAttribute("GeneratorEfficiency", nil)
         end
     end)
     
     originalValues = {}
+    generatorScripts = {}
+end
+
+-- Iniciar watcher
+local function startGenBoostWatcher()
+    if genBoostConnection then return end
+    
+    genBoostConnection = RunService.Heartbeat:Connect(function()
+        if genBoostEnabled then
+            applyGeneratorBoost()
+            forceFastProgress()
+        end
+    end)
+    
+    applyGeneratorBoost()
+    interceptRepairEvents()
+end
+
+-- Detener watcher
+local function stopGenBoostWatcher()
+    if genBoostConnection then
+        genBoostConnection:Disconnect()
+        genBoostConnection = nil
+    end
+    
+    removeGeneratorBoost()
 end
 
 -- ============================================
@@ -1286,27 +1359,27 @@ SurvivorTab:CreateToggle({
     CurrentValue = false,
     Callback = function(state)
         genBoostEnabled = state
-        
         if state then
             startGenBoostWatcher()
         else
-            if genBoostConnection then
-                genBoostConnection:Disconnect()
-                genBoostConnection = nil
-            end
-            removeGenBoost()
+            stopGenBoostWatcher()
         end
     end
 })
 
 SurvivorTab:CreateSlider({
-    Name = "Velocidad de Reparación",
+    Name = "Repair Speed",
     Range = {1.5, 10.0},
     Increment = 0.5,
     Suffix = "x",
     CurrentValue = genBoostMultiplier,
     Callback = function(value)
         genBoostMultiplier = value
+        
+        if genBoostEnabled then
+            -- Re-aplicar con nuevo multiplicador
+            applyGeneratorBoost()
+        end
     end
 })
 
@@ -1334,175 +1407,70 @@ SurvivorTab:CreateToggle({
 SurvivorTab:CreateSection("Heal")
 
 local instaHealEnabled = false
-local originalHealFunctions = {}
-local healRemotes = {}
+local healConnection = nil
 
--- Encontrar todos los RemoteEvents de curación
-local function findHealRemotes()
-    for _, obj in ipairs(game:GetDescendants()) do
-        if obj:IsA("RemoteEvent") then
-            local nameLower = obj.Name:lower()
-            if nameLower:find("heal") or nameLower:find("revive") or nameLower:find("cure") or 
-               nameLower:find("health") or nameLower:find("medkit") then
-                healRemotes[obj] = obj.FireServer
-            end
-        end
+-- Función principal para insta heal
+local function setupInstaHeal()
+    if healConnection then
+        healConnection:Disconnect()
+        healConnection = nil
     end
-end
-
--- Función para curar completamente a un survivor
-local function healSurvivorCompletely(survivorCharacter)
-    if not survivorCharacter or not survivorCharacter.Parent then return end
     
-    pcall(function()
-        -- Resetear todos los estados de heridas
-        survivorCharacter:SetAttribute("Injured", false)
-        survivorCharacter:SetAttribute("Bleeding", false)
-        survivorCharacter:SetAttribute("Downed", false)
-        survivorCharacter:SetAttribute("Dying", false)
-        survivorCharacter:SetAttribute("Health", 100)
-        survivorCharacter:SetAttribute("Revived", true)
+    healConnection = RunService.Heartbeat:Connect(function()
+        if not instaHealEnabled then return end
         
-        -- Restaurar Humanoid
-        local humanoid = survivorCharacter:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.Health = humanoid.MaxHealth
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-            
-            -- Levantar si estaba caído
-            if humanoid:GetState() == Enum.HumanoidStateType.FallingDown or 
-               humanoid:GetState() == Enum.HumanoidStateType.Ragdoll then
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end
+        local char = LP.Character
+        if not char then return end
         
-        -- Eliminar efectos visuales de heridas
-        for _, effect in ipairs(survivorCharacter:GetChildren()) do
-            local nameLower = effect.Name:lower()
-            if effect:IsA("ParticleEmitter") and (nameLower:find("blood") or nameLower:find("injure")) then
-                effect.Enabled = false
-            end
-        end
+        -- Verificar si estamos curando a alguien
+        local isHealing = char:GetAttribute("IsHealing")
+        local healProgress = char:GetAttribute("HealProgress") or 0
         
-        -- Forzar animación de estar sano
-        local animator = survivorCharacter:FindFirstChildOfClass("Animator")
-        if animator then
-            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                if track.Animation.Name:lower():find("injure") or 
-                   track.Animation.Name:lower():find("hurt") or
-                   track.Animation.Name:lower():find("down") then
-                    track:Stop()
+        if isHealing == true then
+            -- Forzar el progreso de curación a 100%
+            pcall(function()
+                char:SetAttribute("HealProgress", 100)
+                
+                -- También forzar en el objetivo si podemos identificarlo
+                local healingTarget = findHealingTarget(char)
+                if healingTarget then
+                    healingTarget:SetAttribute("HealProgress", 100)
+                    healingTarget:SetAttribute("Health", 100)
+                    
+                    -- Restaurar salud del Humanoid
+                    local humanoid = healingTarget:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        humanoid.Health = humanoid.MaxHealth
+                    end
+                    
+                    -- Forzar que no esté herido
+                    healingTarget:SetAttribute("Injured", false)
+                    healingTarget:SetAttribute("Downed", false)
+                    healingTarget:SetAttribute("Dying", false)
                 end
+            end)
+        end
+        
+        -- También monitorear si estamos cerca de alguien herido y forzar curación
+        if char:GetAttribute("IsHealing") ~= true then
+            local nearestInjured = findNearestInjuredSurvivor()
+            if nearestInjured then
+                -- Iniciar curación automática
+                startAutoHeal(nearestInjured)
             end
         end
     end)
 end
 
--- Interceptar eventos de curación
-local function interceptHealEvents()
-    findHealRemotes()
+-- Encontrar a quién estamos curando
+local function findHealingTarget(healerChar)
+    local humanoidRootPart = healerChar:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
     
-    for remote, originalFire in pairs(healRemotes) do
-        if not originalHealFunctions[remote] then
-            originalHealFunctions[remote] = originalFire
-            
-            remote.FireServer = newcclosure(function(self, ...)
-                local args = {...}
-                
-                if instaHealEnabled and #args >= 1 then
-                    local target = args[1]
-                    
-                    -- Verificar si el objetivo es un survivor (no el jugador mismo)
-                    if typeof(target) == "Instance" and target:IsA("Model") then
-                        local targetPlayer = Players:GetPlayerFromCharacter(target)
-                        
-                        if targetPlayer and targetPlayer ~= LP then
-                            -- Curar completamente al survivor
-                            healSurvivorCompletely(target)
-                            
-                            -- Enviar evento de curación completa
-                            local modifiedArgs = {}
-                            for i, arg in ipairs(args) do
-                                if i == 2 and type(arg) == "string" then
-                                    modifiedArgs[i] = "CompleteHeal"
-                                elseif i == 3 and type(arg) == "number" then
-                                    modifiedArgs[i] = 100  -- 100% de curación
-                                else
-                                    modifiedArgs[i] = arg
-                                end
-                            end
-                            
-                            return originalFire(self, unpack(modifiedArgs))
-                        end
-                    end
-                end
-                
-                return originalFire(self, ...)
-            end)
-        end
-    end
-end
-
--- Interceptar herramientas de curación
-local function interceptHealTools()
-    local char = LP.Character
-    if not char then return end
+    -- Buscar el survivor más cercano
+    local closestPlayer = nil
+    local closestDistance = math.huge
     
-    -- Buscar herramientas médicas
-    for _, tool in ipairs(char:GetChildren()) do
-        if tool:IsA("Tool") then
-            local toolName = tool.Name:lower()
-            if toolName:find("med") or toolName:find("heal") or toolName:find("kit") then
-                
-                for _, script in ipairs(tool:GetDescendants()) do
-                    if script:IsA("LocalScript") or script:IsA("Script") then
-                        pcall(function()
-                            local env = getfenv(script)
-                            
-                            -- Interceptar función de uso
-                            if env.use then
-                                local originalUse = env.use
-                                env.use = function(target, ...)
-                                    if instaHealEnabled and target and target:IsA("Model") then
-                                        local targetPlayer = Players:GetPlayerFromCharacter(target)
-                                        if targetPlayer and targetPlayer ~= LP then
-                                            healSurvivorCompletely(target)
-                                        end
-                                    end
-                                    return originalUse(target, ...)
-                                end
-                            end
-                            
-                            -- Interceptar función de heal
-                            if env.heal then
-                                local originalHeal = env.heal
-                                env.heal = function(target, ...)
-                                    if instaHealEnabled and target and target:IsA("Model") then
-                                        local targetPlayer = Players:GetPlayerFromCharacter(target)
-                                        if targetPlayer and targetPlayer ~= LP then
-                                            healSurvivorCompletely(target)
-                                            return true  -- Indicar que la curación fue exitosa
-                                        end
-                                    end
-                                    return originalHeal(target, ...)
-                                end
-                            end
-                        end)
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Monitorear interacciones de curación
-local function monitorHealInteractions()
-    if not LP.Character then return end
-    
-    local humanoidRootPart = LP.Character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return end
-    
-    -- Buscar survivors cercanos heridos
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LP and player.Character then
             local targetChar = player.Character
@@ -1510,26 +1478,143 @@ local function monitorHealInteractions()
             
             if targetRoot then
                 local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
-                
-                -- Si está dentro del rango de interacción
-                if distance < 10 then
-                    -- Verificar si está herido o caído
-                    local isInjured = targetChar:GetAttribute("Injured") or 
-                                     targetChar:GetAttribute("Downed") or
-                                     targetChar:GetAttribute("Dying") or false
-                    
-                    local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
-                    if humanoid and humanoid.Health < humanoid.MaxHealth then
-                        isInjured = true
-                    end
-                    
-                    if isInjured and instaHealEnabled then
-                        -- Curar automáticamente
-                        healSurvivorCompletely(targetChar)
+                if distance < 10 and distance < closestDistance then
+                    closestDistance = distance
+                    closestPlayer = targetChar
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- Encontrar el survivor herido más cercano
+local function findNearestInjuredSurvivor()
+    local char = LP.Character
+    if not char then return nil end
+    
+    local humanoidRootPart = char:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
+    
+    local closestInjured = nil
+    local closestDistance = math.huge
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            local targetChar = player.Character
+            
+            -- Verificar si está herido
+            local isInjured = targetChar:GetAttribute("Injured") or 
+                            targetChar:GetAttribute("Downed") or
+                            targetChar:GetAttribute("Dying") or false
+            
+            local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health < humanoid.MaxHealth then
+                isInjured = true
+            end
+            
+            if isInjured then
+                local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
+                    if distance < 15 and distance < closestDistance then
+                        closestDistance = distance
+                        closestInjured = targetChar
                     end
                 end
             end
         end
+    end
+    
+    return closestInjured
+end
+
+-- Iniciar curación automática
+local function startAutoHeal(targetChar)
+    if not instaHealEnabled then return end
+    
+    task.spawn(function()
+        -- Simular que estamos curando
+        local char = LP.Character
+        if char then
+            char:SetAttribute("IsHealing", true)
+            char:SetAttribute("HealProgress", 100)
+            
+            -- Curar instantáneamente al objetivo
+            pcall(function()
+                targetChar:SetAttribute("HealProgress", 100)
+                targetChar:SetAttribute("Health", 100)
+                targetChar:SetAttribute("Injured", false)
+                targetChar:SetAttribute("Downed", false)
+                targetChar:SetAttribute("Dying", false)
+                
+                local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.Health = humanoid.MaxHealth
+                    
+                    -- Levantar si estaba caído
+                    if humanoid:GetState() == Enum.HumanoidStateType.FallingDown or 
+                       humanoid:GetState() == Enum.HumanoidStateType.Ragdoll then
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+                
+                -- Enviar evento de curación completa
+                sendCompleteHealEvent(targetChar)
+            end)
+            
+            task.wait(0.5)
+            char:SetAttribute("IsHealing", false)
+        end
+    end)
+end
+
+-- Enviar evento de curación completa
+local function sendCompleteHealEvent(targetChar)
+    -- Buscar RemoteEvents de curación
+    for _, obj in ipairs(game:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            local nameLower = obj.Name:lower()
+            if nameLower:find("heal") or nameLower:find("revive") or nameLower:find("cure") then
+                pcall(function()
+                    -- Enviar evento de curación completa
+                    obj:FireServer(targetChar, "CompleteHeal", 100)
+                    obj:FireServer(targetChar, "Revive", true)
+                end)
+            end
+        end
+    end
+end
+
+-- Interceptar cuando el juego intente cambiar HealProgress
+local function interceptHealProgress()
+    local char = LP.Character
+    if not char then return end
+    
+    -- Interceptar el atributo HealProgress
+    local meta = getrawmetatable(char)
+    if meta then
+        local originalIndex = meta.__index
+        local originalNewIndex = meta.__newindex
+        
+        setreadonly(meta, false)
+        
+        meta.__index = newcclosure(function(self, key)
+            if instaHealEnabled and key == "HealProgress" then
+                return 100
+            end
+            return originalIndex(self, key)
+        end)
+        
+        meta.__newindex = newcclosure(function(self, key, value)
+            if instaHealEnabled and key == "HealProgress" then
+                value = 100
+            end
+            return originalNewIndex(self, key, value)
+        end)
+        
+        setreadonly(meta, true)
     end
 end
 
@@ -1540,20 +1625,17 @@ SurvivorTab:CreateToggle({
         instaHealEnabled = v
         
         if v then
-            -- Interceptar eventos de curación
-            interceptHealEvents()
+            -- Iniciar sistema de insta heal
+            setupInstaHeal()
             
-            -- Interceptar herramientas
-            interceptHealTools()
+            -- Interceptar HealProgress
+            interceptHealProgress()
             
-            -- Iniciar monitoreo de proximidad
-            local healMonitorConnection
-            healMonitorConnection = RunService.Heartbeat:Connect(function()
-                if instaHealEnabled then
-                    monitorHealInteractions()
-                    interceptHealTools()  -- Revisar si hay nuevas herramientas
-                else
-                    healMonitorConnection:Disconnect()
+            -- Aplicar inmediatamente
+            task.spawn(function()
+                local char = LP.Character
+                if char then
+                    char:SetAttribute("HealProgress", 100)
                 end
             end)
             
@@ -1561,19 +1643,31 @@ SurvivorTab:CreateToggle({
             LP.CharacterAdded:Connect(function()
                 task.wait(1)
                 if instaHealEnabled then
-                    interceptHealTools()
+                    setupInstaHeal()
+                    interceptHealProgress()
+                    
+                    local char = LP.Character
+                    if char then
+                        char:SetAttribute("HealProgress", 100)
+                    end
                 end
             end)
             
         else
-            -- Restaurar funciones originales
-            for remote, originalFunc in pairs(originalHealFunctions) do
-                if remote and originalFunc then
-                    remote.FireServer = originalFunc
-                end
+            -- Desactivar
+            if healConnection then
+                healConnection:Disconnect()
+                healConnection = nil
             end
-            originalHealFunctions = {}
-            healRemotes = {}
+            
+            -- Restaurar atributos
+            task.spawn(function()
+                local char = LP.Character
+                if char then
+                    char:SetAttribute("IsHealing", false)
+                    char:SetAttribute("HealProgress", 0)
+                end
+            end)
         end
     end
 })
@@ -2203,6 +2297,8 @@ KillerTab:CreateSlider({
 })
 
 -- Sección Full Break Motor
+KillerTab:CreateSection("Generator")
+
 KillerTab:CreateToggle({
     Name = "Full Break Generator",
     CurrentValue = false,
