@@ -782,146 +782,99 @@ end
 local genBoostEnabled = false
 local genBoostMultiplier = 2.0
 local genBoostConnection = nil
-local originalRepairSpeeds = {}
-local generatorRemotes = {}
-local repairHooks = {}
+local originalValues = {}
 
--- Encontrar y guardar los RemoteEvents de reparación
-local function findRepairRemotes()
-    generatorRemotes = {}
+local function applyRealGeneratorBoost()
+    if not genBoostEnabled then return end
     
-    -- Buscar en diferentes lugares
-    local searchPlaces = {ReplicatedStorage, Workspace, game:GetService("Players")}
-    
-    for _, place in ipairs(searchPlaces) do
-        for _, obj in ipairs(place:GetDescendants()) do
-            if obj:IsA("RemoteEvent") then
-                local nameLower = obj.Name:lower()
-                if nameLower:find("repair") or nameLower:find("generator") or 
-                   nameLower:find("progress") or nameLower:find("fix") then
-                    generatorRemotes[obj] = obj.FireServer
-                end
-            end
-        end
-    end
-end
-
--- Interceptar eventos de reparación
-local function interceptRepairEvents()
-    findRepairRemotes()
-    
-    for remote, originalFire in pairs(generatorRemotes) do
-        if not repairHooks[remote] then
-            remote.FireServer = newcclosure(function(self, ...)
-                local args = {...}
+    for _, generator in ipairs(Workspace:GetDescendants()) do
+        if generator:IsA("Model") and (generator.Name:lower():find("generator") or generator.Name:lower():find("gen_")) then
+            
+            pcall(function()
+                local currentProgress = generator:GetAttribute("Progress") or 
+                                      generator:GetAttribute("progress") or 
+                                      generator:GetAttribute("CurrentProgress") or 0
                 
-                if genBoostEnabled and LP.Character then
-                    -- Modificar la velocidad de reparación en los argumentos
-                    if #args >= 2 then
-                        local modifiedArgs = {}
-                        
-                        for i, arg in ipairs(args) do
-                            if type(arg) == "number" and (i == 2 or i == 3) then
-                                -- Aumentar el valor de progreso/reparación
-                                modifiedArgs[i] = arg * genBoostMultiplier
-                            elseif type(arg) == "table" then
-                                -- Buscar valores de progreso en tablas
-                                local modifiedTable = {}
-                                for k, v in pairs(arg) do
-                                    if (k == "progress" or k == "Progress" or k == "repairSpeed" or 
-                                        k == "speed" or k == "value") and type(v) == "number" then
-                                        modifiedTable[k] = v * genBoostMultiplier
-                                    else
-                                        modifiedTable[k] = v
-                                    end
-                                end
-                                modifiedArgs[i] = modifiedTable
-                            else
-                                modifiedArgs[i] = arg
-                            end
-                        end
-                        
-                        return originalFire(self, unpack(modifiedArgs))
-                    end
+                if type(currentProgress) == "number" and currentProgress < 100 then
+                    local newProgress = currentProgress + (0.5 * genBoostMultiplier)
+                    generator:SetAttribute("Progress", newProgress)
+                    generator:SetAttribute("progress", newProgress)
+                    generator:SetAttribute("CurrentProgress", newProgress)
                 end
                 
-                return originalFire(self, ...)
+                generator:SetAttribute("RepairSpeed", genBoostMultiplier)
+                generator:SetAttribute("repairSpeed", genBoostMultiplier)
+                generator:SetAttribute("SpeedMultiplier", genBoostMultiplier)
             end)
             
-            repairHooks[remote] = true
-        end
-    end
-end
-
--- Modificar directamente los scripts de generadores
-local function modifyGeneratorScripts()
-    for _, generator in ipairs(Workspace:GetDescendants()) do
-        if generator:IsA("Model") and generator.Name:lower():find("generator") then
             for _, script in ipairs(generator:GetDescendants()) do
-                if script:IsA("Script") or script:IsA("LocalScript") then
-                    if script.Source and script.Source:find("progress") then
-                        -- Guardar valores originales
+                if script:IsA("Script") or script:IsA("ModuleScript") or script:IsA("LocalScript") then
+                    pcall(function()
                         local env = getfenv(script)
                         
                         if env.repairSpeed and type(env.repairSpeed) == "number" then
-                            originalRepairSpeeds[script] = env.repairSpeed
-                            env.repairSpeed = env.repairSpeed * genBoostMultiplier
+                            if not originalValues[script] then
+                                originalValues[script] = env.repairSpeed
+                            end
+                            env.repairSpeed = originalValues[script] * genBoostMultiplier
                         end
                         
                         if env.RepairSpeed and type(env.RepairSpeed) == "number" then
-                            originalRepairSpeeds[script] = env.RepairSpeed
-                            env.RepairSpeed = env.RepairSpeed * genBoostMultiplier
+                            if not originalValues[script] then
+                                originalValues[script] = env.RepairSpeed
+                            end
+                            env.RepairSpeed = originalValues[script] * genBoostMultiplier
                         end
                         
-                        -- Interceptar funciones de reparación
-                        if env.updateProgress then
-                            local originalUpdate = env.updateProgress
-                            env.updateProgress = function(...)
-                                local result = originalUpdate(...)
-                                if genBoostEnabled then
-                                    -- Forzar progreso más rápido
-                                    task.spawn(function()
-                                        for i = 1, 10 do
-                                            if script and script.Parent then
-                                                pcall(function()
-                                                    local progressValue = env.progress or env.Progress
-                                                    if type(progressValue) == "number" then
-                                                        env.progress = math.min(100, progressValue + (5 * genBoostMultiplier))
-                                                    end
-                                                end)
-                                                task.wait(0.1)
-                                            end
-                                        end
-                                    end)
-                                end
-                                return result
-                            end
+                        if env.progress and type(env.progress) == "number" then
+                            env.progress = math.min(100, env.progress + (0.3 * genBoostMultiplier))
                         end
-                    end
+                        
+                        if env.Progress and type(env.Progress) == "number" then
+                            env.Progress = math.min(100, env.Progress + (0.3 * genBoostMultiplier))
+                        end
+                        
+                        if env.repairTime and type(env.repairTime) == "number" then
+                            if not originalValues[script] then
+                                originalValues[script] = env.repairTime
+                            end
+                            env.repairTime = originalValues[script] / genBoostMultiplier
+                        end
+                    end)
                 end
             end
         end
     end
 end
 
--- Modificar el tiempo de reparación
-local function modifyRepairTimes()
+local function interceptPlayerRepair()
     if not LP.Character then return end
     
-    -- Buscar y modificar cualquier variable de tiempo de reparación
     for _, tool in ipairs(LP.Character:GetChildren()) do
-        if tool:IsA("Tool") and tool.Name:lower():find("repair") then
-            for _, script in ipairs(tool:GetDescendants()) do
-                if script:IsA("Script") then
-                    local env = getfenv(script)
-                    
-                    -- Modificar tiempos de reparación
-                    if env.repairTime and type(env.repairTime) == "number" then
-                        env.repairTime = env.repairTime / genBoostMultiplier
-                    end
-                    
-                    if env.RepairTime and type(env.RepairTime) == "number" then
-                        env.RepairTime = env.RepairTime / genBoostMultiplier
+        if tool:IsA("Tool") then
+            local toolName = tool.Name:lower()
+            if toolName:find("repair") or toolName:find("tool") or toolName:find("kit") then
+                
+                for _, script in ipairs(tool:GetDescendants()) do
+                    if script:IsA("Script") then
+                        pcall(function()
+                            local env = getfenv(script)
+                            
+                            if env.repair then
+                                local originalRepair = env.repair
+                                env.repair = function(...)
+                                    if genBoostEnabled then
+                                        task.spawn(function()
+                                            for i = 1, 20 do
+                                                applyRealGeneratorBoost()
+                                                task.wait(0.1)
+                                            end
+                                        end)
+                                    end
+                                    return originalRepair(...)
+                                end
+                            end
+                        end)
                     end
                 end
             end
@@ -929,95 +882,60 @@ local function modifyRepairTimes()
     end
 end
 
--- Función principal para aplicar el boost
-local function applyGeneratorBoost()
-    if not genBoostEnabled then return end
-    
-    -- Interceptar eventos
-    interceptRepairEvents()
-    
-    -- Modificar scripts
-    modifyGeneratorScripts()
-    
-    -- Modificar tiempos
-    modifyRepairTimes()
-    
-    -- Aplicar atributos (por si el juego los usa)
-    pcall(function()
-        if LP.Character then
-            LP.Character:SetAttribute("RepairBoost", genBoostMultiplier)
-            LP.Character:SetAttribute("RepairSpeedMultiplier", genBoostMultiplier)
-            
-            -- Crear un valor para forzar progreso rápido
-            local fastRepair = LP.Character:FindFirstChild("FastRepair")
-            if not fastRepair then
-                fastRepair = Instance.new("BoolValue")
-                fastRepair.Name = "FastRepair"
-                fastRepair.Value = true
-                fastRepair.Parent = LP.Character
-            end
-        end
-    end)
-end
-
--- Restaurar valores originales
-local function removeGeneratorBoost()
-    -- Restaurar eventos remotos
-    for remote, originalFire in pairs(generatorRemotes) do
-        if repairHooks[remote] then
-            remote.FireServer = originalFire
-            repairHooks[remote] = nil
-        end
-    end
-    
-    -- Restaurar scripts
-    for script, originalSpeed in pairs(originalRepairSpeeds) do
-        if script.Parent then
-            local env = getfenv(script)
-            if env.repairSpeed then
-                env.repairSpeed = originalSpeed
-            end
-            if env.RepairSpeed then
-                env.RepairSpeed = originalSpeed
-            end
-        end
-    end
-    
-    -- Limpiar atributos
-    pcall(function()
-        if LP.Character then
-            LP.Character:SetAttribute("RepairBoost", nil)
-            LP.Character:SetAttribute("RepairSpeedMultiplier", nil)
-            
-            local fastRepair = LP.Character:FindFirstChild("FastRepair")
-            if fastRepair then
-                fastRepair:Destroy()
-            end
-        end
-    end)
-    
-    originalRepairSpeeds = {}
-    generatorRemotes = {}
-end
-
--- Watcher para nuevos generadores
-local function startGeneratorWatcher()
+local function startGenBoostWatcher()
     if genBoostConnection then return end
     
     genBoostConnection = RunService.Heartbeat:Connect(function()
         if genBoostEnabled then
-            -- Monitorear nuevos generadores
-            for _, generator in ipairs(Workspace:GetDescendants()) do
-                if generator:IsA("Model") and generator.Name:lower():find("generator") then
-                    local alreadyModified = generator:GetAttribute("BoostModified")
-                    if not alreadyModified and genBoostEnabled then
-                        modifyGeneratorScripts()
-                        generator:SetAttribute("BoostModified", true)
+            applyRealGeneratorBoost()
+            interceptPlayerRepair()
+            
+            pcall(function()
+                if LP.Character then
+                    LP.Character:SetAttribute("RepairBoost", genBoostMultiplier)
+                    LP.Character:SetAttribute("GeneratorSpeed", genBoostMultiplier)
+                    
+                    local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        humanoid:SetAttribute("ActionSpeed", genBoostMultiplier)
                     end
                 end
+            end)
+        end
+    end)
+end
+
+local function removeGenBoost()
+    for script, originalValue in pairs(originalValues) do
+        if script.Parent then
+            pcall(function()
+                local env = getfenv(script)
+                if env.repairSpeed then
+                    env.repairSpeed = originalValue
+                end
+                if env.RepairSpeed then
+                    env.RepairSpeed = originalValue
+                end
+                if env.repairTime then
+                    env.repairTime = originalValue
+                end
+            end)
+        end
+    end
+    
+    pcall(function()
+        if LP.Character then
+            LP.Character:SetAttribute("RepairBoost", nil)
+            LP.Character:SetAttribute("GeneratorSpeed", nil)
+            
+            local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid:SetAttribute("ActionSpeed", nil)
             end
         end
     end)
+    
+    originalValues = {}
 end
 
 -- ============================================
@@ -1364,38 +1282,31 @@ SurvivorTab:CreateSlider({
 SurvivorTab:CreateSection("Generator Boost")
 
 SurvivorTab:CreateToggle({
-    Name = "Enable Generator Boost",
+    Name = "Generator Boost",
     CurrentValue = false,
-    Flag = "GenBoostToggle",
     Callback = function(state)
         genBoostEnabled = state
+        
         if state then
-            applyGeneratorBoost()
-            startGeneratorWatcher()
+            startGenBoostWatcher()
         else
-            removeGeneratorBoost()
             if genBoostConnection then
                 genBoostConnection:Disconnect()
                 genBoostConnection = nil
             end
+            removeGenBoost()
         end
     end
 })
 
 SurvivorTab:CreateSlider({
-    Name = "Repair Multiplier",
-    Range = {1.0, 10.0},
+    Name = "Velocidad de Reparación",
+    Range = {1.5, 10.0},
     Increment = 0.5,
     Suffix = "x",
     CurrentValue = genBoostMultiplier,
-    Flag = "GenBoostValue",
     Callback = function(value)
         genBoostMultiplier = value
-        
-        if genBoostEnabled then
-            removeGeneratorBoost()
-            applyGeneratorBoost()
-        end
     end
 })
 
