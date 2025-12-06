@@ -1739,11 +1739,72 @@ local MiscTab = Window:CreateTab("Misc")
 MiscTab:CreateSection("Utilities")
 
 local autoRespawnEnabled = false
+local respawnConnection = nil
+
 MiscTab:CreateToggle({
     Name = "Auto Respawn",
     CurrentValue = false,
     Callback = function(v)
         autoRespawnEnabled = v
+        
+        if v then
+            respawnConnection = LP.CharacterAdded:Connect(function(character)
+                -- Cuando aparece un nuevo personaje, monitorear su salud
+                task.wait(1)  -- Esperar a que cargue
+                
+                local humanoid = character:WaitForChild("Humanoid", 5)
+                if humanoid then
+                    humanoid.Died:Connect(function()
+                        task.wait(2)  -- Esperar 2 segundos después de morir
+                        
+                        if autoRespawnEnabled then
+                            -- Intentar reaparecer
+                            pcall(function()
+                                -- Buscar botón de respawn en la UI
+                                local playerGui = LP:FindFirstChild("PlayerGui")
+                                if playerGui then
+                                    for _, gui in ipairs(playerGui:GetChildren()) do
+                                        if gui:IsA("ScreenGui") then
+                                            for _, button in ipairs(gui:GetDescendants()) do
+                                                if button:IsA("TextButton") and 
+                                                   (button.Text:lower():find("respawn") or 
+                                                    button.Text:lower():find("revive") or
+                                                    button.Text:lower():find("reaparecer")) then
+                                                    firesignal(button.MouseButton1Click)
+                                                    break
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                
+                                -- También enviar evento de respawn
+                                LP:SetAttribute("RequestRespawn", true)
+                            end)
+                        end
+                    end)
+                end
+            end)
+            
+            -- Conectar también para personaje actual
+            if LP.Character then
+                local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.Died:Connect(function()
+                        task.wait(2)
+                        if autoRespawnEnabled then
+                            LP:SetAttribute("RequestRespawn", true)
+                        end
+                    end)
+                end
+            end
+            
+        else
+            if respawnConnection then
+                respawnConnection:Disconnect()
+                respawnConnection = nil
+            end
+        end
     end
 })
 
