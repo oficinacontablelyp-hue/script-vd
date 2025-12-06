@@ -201,12 +201,12 @@ local function getPlayerColor(p)
 end
 
 -- ============================================
--- SISTEMA ESP PARA JUGADORES
+-- SISTEMA ESP PARA JUGADORES (OPTIMIZADO)
 -- ============================================
 
 local espLoopConn = nil
-local lastESPUpdate = 0
-local ESP_UPDATE_INTERVAL = 0.08  -- Más rápido para mejor actualización
+local lastPlayerESPUpdate = 0
+local PLAYER_ESP_INTERVAL = 1.5  -- Igual que generator ESP
 
 local function cleanPlayerESP(p)
     if not p then return end
@@ -224,7 +224,7 @@ local function cleanPlayerESP(p)
     end
 end
 
-local function applyOnePlayerESP(p)
+local function applyOptimizedPlayerESP(p)
     if p == LP then return end
     
     local character = p.Character
@@ -233,55 +233,64 @@ local function applyOnePlayerESP(p)
         return
     end
     
+    -- Verificar si está en lobby/spectator
+    if isInLobby(p) or isSpectator(p) then
+        cleanPlayerESP(p)
+        return
+    end
+    
     local color = getPlayerColor(p)
     
-    local head = character:FindFirstChild("Head")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
+    -- Aplicar ESP solo si está activado
     if playerESPEnabled or nametagsEnabled then
+        -- Aplicar highlight (si está activado)
         if playerESPEnabled then
             local hl = ensureHighlight(character, color)
             if hl then
                 hl.Enabled = true
+                hl.FillTransparency = 0.6  -- Más transparente
+                hl.OutlineTransparency = 0.4
             end
         else
             clearHighlight(character)
         end
         
+        -- Aplicar nametag (si está activado)
+        local head = character:FindFirstChild("Head")
         if nametagsEnabled and validPart(head) then
             local text = p.Name
+            local existingTag = head:FindFirstChild("ESP_Tag")
             
-            -- Verificar si debemos mostrar distancia
-            local shouldShowDistance = showDistance and not isSpectator(p) and not isInLobby(p)
-            local isWithinDistance = true
-            
-            if shouldShowDistance and hrp and LP.Character and LP.Character.Parent then
-                local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
-                if myHrp and myHrp.Parent then
-                    local distance = math.floor((hrp.Position - myHrp.Position).Magnitude)
-                    
-                    if distance <= maxDistance then
-                        text = text .. " [" .. distance .. "m]"
-                    else
-                        -- Si está fuera de rango, no mostrar ESP
-                        isWithinDistance = false
-                        if head:FindFirstChild("ESP_Tag") then
-                            head.ESP_Tag.Enabled = false
-                        end
-                        if playerESPEnabled then
-                            clearHighlight(character)
-                        end
-                    end
+            if not existingTag then
+                -- Crear nuevo tag optimizado
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "ESP_Tag"
+                bb.AlwaysOnTop = true
+                bb.Size = UDim2.new(0, 150, 0, 25)  -- Más pequeño
+                bb.StudsOffset = Vector3.new(0, 3, 0)
+                bb.Enabled = true
+                bb.Parent = head
+                
+                local label = Instance.new("TextLabel")
+                label.Name = "Label"
+                label.BackgroundTransparency = 1
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.Font = Enum.Font.GothamMedium
+                label.Text = text
+                label.TextSize = 12  -- Texto más pequeño
+                label.TextColor3 = color
+                label.TextStrokeTransparency = 0.5
+                label.TextStrokeColor3 = Color3.new(0, 0, 0)
+                label.Parent = bb
+                
+                table.insert(espObjects, bb)
+            else
+                -- Solo actualizar color si ya existe
+                local label = existingTag:FindFirstChild("Label")
+                if label then
+                    label.TextColor3 = color
                 end
-            end
-            
-            -- Solo mostrar ESP si está dentro del rango de distancia
-            if isWithinDistance then
-                local tag = makeBillboard(text, color, head)
-                if tag then
-                    tag.Enabled = true
-                    tag.Adornee = head
-                end
+                existingTag.Enabled = true
             end
         elseif head and head:FindFirstChild("ESP_Tag") then
             if not nametagsEnabled then
@@ -289,157 +298,128 @@ local function applyOnePlayerESP(p)
             end
         end
         
-        if not playerCache[p] then 
-            playerCache[p] = {
-                lastUpdate = tick(),
-                character = character
-            }
-        end
-        playerCache[p].lastUpdate = tick()
+        -- Actualizar cache
+        playerCache[p] = {
+            lastUpdate = tick(),
+            character = character,
+            color = color
+        }
     else
         cleanPlayerESP(p)
     end
 end
 
-local updateQueue = {}
-local isProcessing = false
-
-local function processUpdateQueue()
-    if isProcessing then return end
-    isProcessing = true
-    
-    local processed = 0
-    local maxPerFrame = 5
-    
-    while #updateQueue > 0 and processed < maxPerFrame do
-        local player = table.remove(updateQueue, 1)
-        if player and player.Parent then
-            applyOnePlayerESP(player)
-            processed = processed + 1
-        end
-    end
-    
-    isProcessing = false
-end
-
-local function cleanupFarPlayers()
+local function updateAllPlayersESP()
     if not (playerESPEnabled or nametagsEnabled) then return end
-    if not LP.Character then return end
     
-    local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return end
+    local now = tick()
+    if now - lastPlayerESPUpdate < PLAYER_ESP_INTERVAL then return end
+    lastPlayerESPUpdate = now
     
+    local playersToProcess = {}
+    local playerCount = 0
+    
+    -- Recolectar jugadores para procesar
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP and player.Character then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            
-            if hrp then
-                local distance = (hrp.Position - myHrp.Position).Magnitude
-                
-                -- Si está fuera del rango máximo y showDistance está activado
-                if showDistance and distance > maxDistance then
-                    cleanPlayerESP(player)
-                end
-            end
+        if player ~= LP and playerCount < 20 then  -- Límite de 20 jugadores
+            playersToProcess[player] = true
+            playerCount = playerCount + 1
+        end
+    end
+    
+    -- Limpiar jugadores que ya no están
+    for player, data in pairs(playerCache) do
+        if not playersToProcess[player] or not player.Parent then
+            cleanPlayerESP(player)
+            playerCache[player] = nil
+        end
+    end
+    
+    -- Procesar jugadores
+    for player, _ in pairs(playersToProcess) do
+        local cacheData = playerCache[player]
+        local shouldUpdate = true
+        
+        if cacheData then
+            -- Solo actualizar si pasaron más de 2 segundos
+            shouldUpdate = (now - (cacheData.lastUpdate or 0)) > 2
+        end
+        
+        if shouldUpdate then
+            applyOptimizedPlayerESP(player)
         end
     end
 end
 
-local function startESPLoop()
+local function startOptimizedESPLoop()
     if espLoopConn then 
         espLoopConn:Disconnect()
         espLoopConn = nil
     end
     
-    espLoopConn = RunService.Heartbeat:Connect(function(deltaTime)
-        if not (playerESPEnabled or nametagsEnabled) then return end
-        
-        local now = tick()
-        if now - lastESPUpdate < ESP_UPDATE_INTERVAL then 
-            processUpdateQueue()
-            cleanupFarPlayers()  -- Limpiar jugadores lejanos
-            return 
-        end
-        lastESPUpdate = now
-        
-        updateQueue = {}
-        
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LP then
-                table.insert(updateQueue, player)
-            end
-        end
-        
-        processUpdateQueue()
-        cleanupFarPlayers()  -- Limpiar jugadores lejanos
+    espLoopConn = RunService.Heartbeat:Connect(function()
+        updateAllPlayersESP()
     end)
 end
 
-local function stopESPLoop()
+local function stopOptimizedESPLoop()
     if espLoopConn then
         espLoopConn:Disconnect()
         espLoopConn = nil
     end
     
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP then
-            cleanPlayerESP(player)
-        end
+    -- Limpiar todos los jugadores
+    for player, data in pairs(playerCache) do
+        cleanPlayerESP(player)
     end
     
-    for _, obj in ipairs(espObjects) do
-        if obj and obj.Parent then
-            pcall(function() obj:Destroy() end)
-        end
-    end
-    espObjects = {}
     playerCache = {}
-    updateQueue = {}
-end
-
-local function forceUpdateAllPlayers()
-    if not (playerESPEnabled or nametagsEnabled) then return end
+    lastPlayerESPUpdate = 0
     
-    updateQueue = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP then
-            table.insert(updateQueue, player)
-            applyOnePlayerESP(player)
+    -- Limpiar objetos ESP
+    for i = #espObjects, 1, -1 do
+        local obj = espObjects[i]
+        if obj and (obj.Name == "ESP_Tag" or obj.Name == "ESP_Highlight") then
+            pcall(function() obj:Destroy() end)
+            table.remove(espObjects, i)
         end
     end
-    cleanupFarPlayers()  -- Limpiar jugadores lejanos también
 end
 
-local function watchPlayer(p)
+local function watchPlayerOptimized(p)
     if p == LP then return end
     if connections[p] then return end
     
     local playerConns = {}
     
-    table.insert(playerConns, p.CharacterAdded:Connect(function(character)
-        task.wait(0.3)
+    -- Conectar eventos
+    playerConns.characterAdded = p.CharacterAdded:Connect(function(character)
+        task.wait(1)  -- Esperar a que cargue
         if playerESPEnabled or nametagsEnabled then
-            applyOnePlayerESP(p)
+            applyOptimizedPlayerESP(p)
         end
-    end))
+    end)
     
-    table.insert(playerConns, p:GetPropertyChangedSignal("Team"):Connect(function()
+    playerConns.teamChanged = p:GetPropertyChangedSignal("Team"):Connect(function()
         if playerESPEnabled or nametagsEnabled then
-            applyOnePlayerESP(p)
+            task.wait(0.5)
+            applyOptimizedPlayerESP(p)
         end
-    end))
+    end)
     
-    table.insert(playerConns, p:GetAttributeChangedSignal("Spectator"):Connect(function()
+    playerConns.spectatorChanged = p:GetAttributeChangedSignal("Spectator"):Connect(function()
         if playerESPEnabled or nametagsEnabled then
-            applyOnePlayerESP(p)
+            task.wait(0.5)
+            applyOptimizedPlayerESP(p)
         end
-    end))
+    end)
     
+    -- Aplicar inicialmente si tiene personaje
     if p.Character then
         task.spawn(function()
-            task.wait(0.3)
+            task.wait(1)
             if playerESPEnabled or nametagsEnabled then
-                applyOnePlayerESP(p)
+                applyOptimizedPlayerESP(p)
             end
         end)
     end
@@ -447,9 +427,9 @@ local function watchPlayer(p)
     connections[p] = playerConns
 end
 
-local function unwatchPlayer(p)
+local function unwatchPlayerOptimized(p)
     if connections[p] then
-        for _, conn in ipairs(connections[p]) do
+        for _, conn in pairs(connections[p]) do
             pcall(function() conn:Disconnect() end)
         end
         connections[p] = nil
@@ -458,6 +438,28 @@ local function unwatchPlayer(p)
     cleanPlayerESP(p)
     playerCache[p] = nil
 end
+
+-- Inicializar observadores para jugadores existentes
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LP then
+        watchPlayerOptimized(p)
+    end
+end
+
+-- Observador para nuevos jugadores
+Players.PlayerAdded:Connect(function(p)
+    if p ~= LP then
+        watchPlayerOptimized(p)
+        task.wait(1)
+        if playerESPEnabled or nametagsEnabled then
+            applyOptimizedPlayerESP(p)
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+    unwatchPlayerOptimized(p)
+end)
 
 -- ============================================
 -- SISTEMA ESP PARA GENERATORS
@@ -1067,11 +1069,9 @@ VisualTab:CreateToggle({
     Callback = function(s)
         playerESPEnabled = s
         if s or nametagsEnabled then
-            startESPLoop()
-            task.wait(0.1)
-            forceUpdateAllPlayers()
+            startOptimizedESPLoop()
         else
-            stopESPLoop()
+            stopOptimizedESPLoop()
         end
     end
 })
@@ -1083,52 +1083,10 @@ VisualTab:CreateToggle({
     Callback = function(s)
         nametagsEnabled = s
         if s or playerESPEnabled then
-            startESPLoop()
-            task.wait(0.1)
-            forceUpdateAllPlayers()
+            startOptimizedESPLoop()
         else
-            stopESPLoop()
+            stopOptimizedESPLoop()
         end
-    end
-})
-
-VisualTab:CreateToggle({
-  Name = "Mostrar Distancia",
-  CurrentValue = showDistance,
-  Flag = "showDistance",
-  Callback = function(s)
-    showDistance = s
-    if playerESPEnabled or nametagsEnabled then
-      forceUpdateAllPlayers()
-    end
-  end
-})
-
-VisualTab:CreateSlider({
-    Name = "Distancia Máxima",
-    Range = {50, 300},
-    Increment = 10,
-    Suffix = " studs",
-    CurrentValue = maxDistance,
-    Flag = "MaxDistance",
-    Callback = function(v)
-        maxDistance = v
-        if playerESPEnabled or nametagsEnabled then
-            forceUpdateAllPlayers()
-        end
-    end
-})
-
-
-VisualTab:CreateButton({
-    Name = "Forzar Actualización ESP",
-    Callback = function()
-        forceUpdateAllPlayers()
-        Rayfield:Notify({
-            Title = "ESP Actualizado",
-            Content = "Todos los jugadores han sido actualizados",
-            Duration = 2
-        })
     end
 })
 
@@ -1138,8 +1096,11 @@ VisualTab:CreateColorPicker({
     Flag = "SurvivorCol",
     Callback = function(c) 
         survivorColor = c 
-        if playerESPEnabled or nametagsEnabled then
-            forceUpdateAllPlayers()
+        -- Forzar actualización de todos los jugadores
+        for player, data in pairs(playerCache) do
+            if getRole(player) == "Survivor" then
+                applyOptimizedPlayerESP(player)
+            end
         end
     end
 })
@@ -1150,8 +1111,11 @@ VisualTab:CreateColorPicker({
     Flag = "KillerCol",
     Callback = function(c) 
         killerColor = c 
-        if playerESPEnabled or nametagsEnabled then
-            forceUpdateAllPlayers()
+        -- Forzar actualización de todos los jugadores
+        for player, data in pairs(playerCache) do
+            if getRole(player) == "Killer" then
+                applyOptimizedPlayerESP(player)
+            end
         end
     end
 })
@@ -1162,21 +1126,12 @@ VisualTab:CreateColorPicker({
     Flag = "LobbyCol",
     Callback = function(c) 
         lobbyColor = c 
-        if playerESPEnabled or nametagsEnabled then
-            forceUpdateAllPlayers()
+        -- Forzar actualización de todos los jugadores
+        for player, data in pairs(playerCache) do
+            if isInLobby(player) then
+                applyOptimizedPlayerESP(player)
+            end
         end
-    end
-})
-
-VisualTab:CreateSlider({
-    Name = "Intervalo de Actualización ESP",
-    Range = {0.05, 3.00},
-    Increment = 0.05,
-    Suffix = " segundos",
-    CurrentValue = ESP_UPDATE_INTERVAL,
-    Flag = "UpdateInterval",
-    Callback = function(v)
-        ESP_UPDATE_INTERVAL = v
     end
 })
 
@@ -1543,7 +1498,7 @@ KillerTab:CreateToggle({
 
 KillerTab:CreateSlider({
     Name = "Hitbox Size Multiplier",
-    Range = {1.0, 5.0},
+    Range = {5.0, 10.0},
     Increment = 0.1,
     CurrentValue = hitboxMultiplier,
     Callback = function(v)
