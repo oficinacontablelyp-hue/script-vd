@@ -1510,7 +1510,7 @@ KillerTab:CreateToggle({
 
 KillerTab:CreateSlider({
     Name = "Hitbox Size Multiplier",
-    Range = {5.0, 10.0},
+    Range = {5.0, 15.0},
     Increment = 0.1,
     CurrentValue = hitboxMultiplier,
     Callback = function(v)
