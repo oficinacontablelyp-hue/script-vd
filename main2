@@ -201,12 +201,12 @@ local function getPlayerColor(p)
 end
 
 -- ============================================
--- SISTEMA ESP PARA JUGADORES (OPTIMIZADO Y CORREGIDO)
+-- SISTEMA ESP PARA JUGADORES
 -- ============================================
 
 local espLoopConn = nil
 local lastPlayerESPUpdate = 0
-local PLAYER_ESP_INTERVAL = 2
+local PLAYER_ESP_INTERVAL = 1.5
 
 local function cleanPlayerESP(p)
     if not p then return end
@@ -406,14 +406,21 @@ local function setupPlayerWatchers()
                 local playerConns = {}
                 
                 playerConns.characterAdded = p.CharacterAdded:Connect(function(character)
-                    task.wait(2)
+                    task.wait(1.5)  -- 1.5 segundos
                     if playerESPEnabled or nametagsEnabled then
                         applyOptimizedPlayerESP(p)
                     end
                 end)
                 
                 playerConns.teamChanged = p:GetPropertyChangedSignal("Team"):Connect(function()
-                    task.wait(0.3)
+                    task.wait(1.5)  -- 1.5 segundos
+                    if playerESPEnabled or nametagsEnabled then
+                        applyOptimizedPlayerESP(p)
+                    end
+                end)
+                
+                playerConns.spectatorChanged = p:GetAttributeChangedSignal("Spectator"):Connect(function()
+                    task.wait(1.5)  -- 1.5 segundos
                     if playerESPEnabled or nametagsEnabled then
                         applyOptimizedPlayerESP(p)
                     end
@@ -424,7 +431,7 @@ local function setupPlayerWatchers()
                 -- Aplicar inicialmente
                 if p.Character then
                     task.spawn(function()
-                        task.wait(2)
+                        task.wait(1.5)  -- 1.5 segundos
                         if playerESPEnabled or nametagsEnabled then
                             applyOptimizedPlayerESP(p)
                         end
@@ -441,7 +448,7 @@ setupPlayerWatchers()
 -- Observadores para nuevos jugadores
 Players.PlayerAdded:Connect(function(p)
     if p ~= LP then
-        task.wait(1)
+        task.wait(1.5)  -- 1.5 segundos
         setupPlayerWatchers()
         if playerESPEnabled or nametagsEnabled then
             applyOptimizedPlayerESP(p)
@@ -467,6 +474,7 @@ local generatorESPEnabled = false
 local generatorLoopConn = nil
 local generatorCache = {}
 local lastGeneratorUpdate = 0
+local GENERATOR_ESP_INTERVAL = 1.5
 
 local function ensureGeneratorHighlight(model, color)
     if not (model and model:IsA("Model") and alive(model)) then return nil end
@@ -531,7 +539,7 @@ local function updateGeneratorESP()
     
     -- Control de tiempo: solo actualizar cada 1.5 segundos
     local now = tick()
-    if now - lastGeneratorUpdate < 1.5 then return end
+    if now - lastGeneratorUpdate < GENERATOR_ESP_INTERVAL then return end
     lastGeneratorUpdate = now
     
     -- Buscar generadores de forma optimizada
@@ -595,7 +603,7 @@ local function updateGeneratorESP()
         local shouldUpdate = true
         
         if cacheData then
-            -- Solo actualizar si pasaron más de 2 segundos
+            -- Solo actualizar si pasaron más de 2 segundos (un poco más que el intervalo)
             shouldUpdate = (now - (cacheData.lastUpdate or 0)) > 2
         end
         
@@ -668,6 +676,11 @@ end
 local function startGeneratorESPLoop()
     if generatorLoopConn then return end
     
+    -- Aplicar ESP inmediatamente a los generadores existentes
+    task.wait(1.5)  -- Esperar 1.5s inicial
+    updateGeneratorESP()
+    
+    -- Iniciar loop de actualización
     generatorLoopConn = RunService.Heartbeat:Connect(function()
         updateGeneratorESP()
     end)
