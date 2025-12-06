@@ -1617,14 +1617,15 @@ local function setupGeneratorMonitor(generator)
     end)
 end
 
+--seccion full break generator
 KillerTab:CreateToggle({
-    Name = "Full Break Motor",
+    Name = "Full Break Generator",
     CurrentValue = false,
     Callback = function(v)
         fullBreakEnabled = v
         
         if v then
-            -- Configurar monitores para generadores existentes
+            -- Conectar al evento de daño en los generadores
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj:IsA("Model") and obj.Name:lower():find("generator") then
                     setupGeneratorMonitor(obj)
@@ -1654,15 +1655,107 @@ KillerTab:CreateToggle({
                 breakConnection = nil
             end
             generatorStates = {}
-            
-            Rayfield:Notify({
-                Title = "Full Break Desactivado",
-                Content = "Daño normal activado",
-                Duration = 3
-            })
         end
     end
 })
+
+-- Función modificada para forzar progreso a 0% al patear
+function setupGeneratorMonitor(generator)
+    if generatorStates[generator] then return end
+    
+    generatorStates[generator] = true
+    
+    -- Buscar el script de progreso del generador
+    local function findProgressScript(model)
+        for _, descendant in ipairs(model:GetDescendants()) do
+            if descendant:IsA("Script") or descendant:IsA("LocalScript") then
+                if descendant.Name:lower():find("progress") or 
+                   descendant.Name:lower():find("repair") or
+                   (descendant.Source and descendant.Source:lower():find("progreso")) then
+                    return descendant
+                end
+            end
+        end
+        return nil
+    end
+    
+    -- Buscar y modificar el evento de daño
+    local function hookDamageEvent()
+        -- Buscar cualquier RemoteEvent o BindableEvent relacionado con daño
+        for _, descendant in ipairs(generator:GetDescendants()) do
+            if descendant:IsA("RemoteEvent") or descendant:IsA("BindableEvent") then
+                if descendant.Name:lower():find("damage") or 
+                   descendant.Name:lower():find("kick") or
+                   descendant.Name:lower():find("hit") then
+                    
+                    local oldFireServer = descendant.FireServer
+                    descendant.FireServer = function(self, ...)
+                        local args = {...}
+                        -- Verificar si es el killer pateando
+                        if fullBreakEnabled and #args > 0 then
+                            -- Buscar y reiniciar el progreso a 0%
+                            local progressScript = findProgressScript(generator)
+                            if progressScript then
+                                -- Intentar acceder a la variable de progreso
+                                pcall(function()
+                                    -- Diferentes formas de buscar el progreso
+                                    for _, scriptPart in ipairs(progressScript:GetDescendants()) do
+                                        if scriptPart:IsA("ModuleScript") then
+                                            local module = require(scriptPart)
+                                            if module and module.progress then
+                                                module.progress = 0
+                                            end
+                                        end
+                                    end
+                                    
+                                    -- También buscar variables directamente
+                                    local src = progressScript.Source
+                                    if src:find("progress") or src:find("Progreso") then
+                                        -- Intentar encontrar y resetear el valor
+                                        local progressValue = getfenv(progressScript).progress or 
+                                                               getfenv(progressScript).Progreso or
+                                                               getfenv(progressScript).repairProgress
+                                        if progressValue and type(progressValue) == "number" then
+                                            if getfenv(progressScript).progress then
+                                                getfenv(progressScript).progress = 0
+                                            elseif getfenv(progressScript).Progreso then
+                                                getfenv(progressScript).Progreso = 0
+                                            elseif getfenv(progressScript).repairProgress then
+                                                getfenv(progressScript).repairProgress = 0
+                                            end
+                                        end
+                                    end
+                                end)
+                            end
+                        end
+                        return oldFireServer(self, ...)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- También monitorear el progreso directamente
+    local progressScript = findProgressScript(generator)
+    if progressScript then
+        local meta = getrawmetatable(progressScript)
+        if meta and meta.__index then
+            local oldIndex = meta.__index
+            setreadonly(meta, false)
+            meta.__index = newcclosure(function(self, key)
+                local result = oldIndex(self, key)
+                if fullBreakEnabled and (key == "progress" or key == "Progreso" or key == "repairProgress" or key == "repairprogress") then
+                    -- Siempre devolver 0 si el killer pateó recientemente
+                    return 0
+                end
+                return result
+            end)
+            setreadonly(meta, true)
+        end
+    end
+    
+    hookDamageEvent()
+end
 
 -- ============================================
 -- PESTAÑA GRAPHICS
@@ -1673,7 +1766,7 @@ local GraphicsTab = Window:CreateTab("Graphics")
 GraphicsTab:CreateSection("Optimization")
 
 GraphicsTab:CreateToggle({
-    Name = "No Shadows (Low Graphics)",
+    Name = "Low Graphics",
     CurrentValue = false,
     Flag = "NoShadows",
     Callback = function(s) 
@@ -1705,76 +1798,6 @@ local MiscTab = Window:CreateTab("Misc")
 -- Sección Utilities
 MiscTab:CreateSection("Utilities")
 
-local autoRespawnEnabled = false
-local respawnConnection = nil
-
-MiscTab:CreateToggle({
-    Name = "Auto Respawn",
-    CurrentValue = false,
-    Callback = function(v)
-        autoRespawnEnabled = v
-        
-        if v then
-            respawnConnection = LP.CharacterAdded:Connect(function(character)
-                -- Cuando aparece un nuevo personaje, monitorear su salud
-                task.wait(1)  -- Esperar a que cargue
-                
-                local humanoid = character:WaitForChild("Humanoid", 5)
-                if humanoid then
-                    humanoid.Died:Connect(function()
-                        task.wait(2)  -- Esperar 2 segundos después de morir
-                        
-                        if autoRespawnEnabled then
-                            -- Intentar reaparecer
-                            pcall(function()
-                                -- Buscar botón de respawn en la UI
-                                local playerGui = LP:FindFirstChild("PlayerGui")
-                                if playerGui then
-                                    for _, gui in ipairs(playerGui:GetChildren()) do
-                                        if gui:IsA("ScreenGui") then
-                                            for _, button in ipairs(gui:GetDescendants()) do
-                                                if button:IsA("TextButton") and 
-                                                   (button.Text:lower():find("respawn") or 
-                                                    button.Text:lower():find("revive") or
-                                                    button.Text:lower():find("reaparecer")) then
-                                                    firesignal(button.MouseButton1Click)
-                                                    break
-                                                end
-                                            end
-                                        end
-                                    end
-                                end
-                                
-                                -- También enviar evento de respawn
-                                LP:SetAttribute("RequestRespawn", true)
-                            end)
-                        end
-                    end)
-                end
-            end)
-            
-            -- Conectar también para personaje actual
-            if LP.Character then
-                local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    humanoid.Died:Connect(function()
-                        task.wait(2)
-                        if autoRespawnEnabled then
-                            LP:SetAttribute("RequestRespawn", true)
-                        end
-                    end)
-                end
-            end
-            
-        else
-            if respawnConnection then
-                respawnConnection:Disconnect()
-                respawnConnection = nil
-            end
-        end
-    end
-})
-
 MiscTab:CreateButton({
     Name = "Limpiar Todo",
     Callback = function()
@@ -1790,19 +1813,6 @@ MiscTab:CreateButton({
             Content = "Todos los hacks han sido desactivados",
             Duration = 3
         })
-    end
-})
-
-MiscTab:CreateButton({
-    Name = "Recargar Script",
-    Callback = function()
-        Rayfield:Notify({
-            Title = "Recargando",
-            Content = "El script se recargará en 3 segundos",
-            Duration = 3
-        })
-        task.wait(3)
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/tu-usuario/tu-repo/main/script.lua"))()
     end
 })
 
