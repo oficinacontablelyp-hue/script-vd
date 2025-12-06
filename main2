@@ -206,7 +206,7 @@ end
 
 local espLoopConn = nil
 local lastPlayerESPUpdate = 0
-local PLAYER_ESP_INTERVAL = 0.8
+local PLAYER_ESP_INTERVAL = 2
 
 local function cleanPlayerESP(p)
     if not p then return end
@@ -406,7 +406,7 @@ local function setupPlayerWatchers()
                 local playerConns = {}
                 
                 playerConns.characterAdded = p.CharacterAdded:Connect(function(character)
-                    task.wait(0.8)
+                    task.wait(2)
                     if playerESPEnabled or nametagsEnabled then
                         applyOptimizedPlayerESP(p)
                     end
@@ -424,7 +424,7 @@ local function setupPlayerWatchers()
                 -- Aplicar inicialmente
                 if p.Character then
                     task.spawn(function()
-                        task.wait(0.8)
+                        task.wait(2)
                         if playerESPEnabled or nametagsEnabled then
                             applyOptimizedPlayerESP(p)
                         end
