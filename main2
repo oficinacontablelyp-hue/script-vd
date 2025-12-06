@@ -201,12 +201,12 @@ local function getPlayerColor(p)
 end
 
 -- ============================================
--- SISTEMA ESP PARA JUGADORES (OPTIMIZADO)
+-- SISTEMA ESP PARA JUGADORES (OPTIMIZADO Y CORREGIDO)
 -- ============================================
 
 local espLoopConn = nil
 local lastPlayerESPUpdate = 0
-local PLAYER_ESP_INTERVAL = 1.5  -- Igual que generator ESP
+local PLAYER_ESP_INTERVAL = 0.8
 
 local function cleanPlayerESP(p)
     if not p then return end
@@ -233,80 +233,92 @@ local function applyOptimizedPlayerESP(p)
         return
     end
     
-    -- Verificar si está en lobby/spectator
-    if isInLobby(p) or isSpectator(p) then
+    local color = getPlayerColor(p)
+    
+    -- Determinar qué mostrar basado en el estado
+    local isLobby = isInLobby(p)
+    local isSpec = isSpectator(p)
+    local showPlayer = playerESPEnabled and not isLobby and not isSpec
+    local showName = nametagsEnabled
+    
+    -- Limpiar si no hay nada que mostrar
+    if not (showPlayer or showName) then
         cleanPlayerESP(p)
         return
     end
     
-    local color = getPlayerColor(p)
-    
-    -- Aplicar ESP solo si está activado
-    if playerESPEnabled or nametagsEnabled then
-        -- Aplicar highlight (si está activado)
-        if playerESPEnabled then
-            local hl = ensureHighlight(character, color)
-            if hl then
-                hl.Enabled = true
-                hl.FillTransparency = 0.6  -- Más transparente
-                hl.OutlineTransparency = 0.4
-            end
-        else
-            clearHighlight(character)
+    -- Aplicar highlight (para jugadores en partida)
+    if showPlayer then
+        local hl = ensureHighlight(character, color)
+        if hl then
+            hl.Enabled = true
+            hl.FillTransparency = 0.6
+            hl.OutlineTransparency = 0.4
         end
-        
-        -- Aplicar nametag (si está activado)
-        local head = character:FindFirstChild("Head")
-        if nametagsEnabled and validPart(head) then
-            local text = p.Name
-            local existingTag = head:FindFirstChild("ESP_Tag")
-            
-            if not existingTag then
-                -- Crear nuevo tag optimizado
-                local bb = Instance.new("BillboardGui")
-                bb.Name = "ESP_Tag"
-                bb.AlwaysOnTop = true
-                bb.Size = UDim2.new(0, 150, 0, 25)  -- Más pequeño
-                bb.StudsOffset = Vector3.new(0, 3, 0)
-                bb.Enabled = true
-                bb.Parent = head
-                
-                local label = Instance.new("TextLabel")
-                label.Name = "Label"
-                label.BackgroundTransparency = 1
-                label.Size = UDim2.new(1, 0, 1, 0)
-                label.Font = Enum.Font.GothamMedium
-                label.Text = text
-                label.TextSize = 12  -- Texto más pequeño
-                label.TextColor3 = color
-                label.TextStrokeTransparency = 0.5
-                label.TextStrokeColor3 = Color3.new(0, 0, 0)
-                label.Parent = bb
-                
-                table.insert(espObjects, bb)
-            else
-                -- Solo actualizar color si ya existe
-                local label = existingTag:FindFirstChild("Label")
-                if label then
-                    label.TextColor3 = color
-                end
-                existingTag.Enabled = true
-            end
-        elseif head and head:FindFirstChild("ESP_Tag") then
-            if not nametagsEnabled then
-                head.ESP_Tag.Enabled = false
-            end
-        end
-        
-        -- Actualizar cache
-        playerCache[p] = {
-            lastUpdate = tick(),
-            character = character,
-            color = color
-        }
     else
-        cleanPlayerESP(p)
+        clearHighlight(character)
     end
+    
+    -- Aplicar nametag (para todos, incluyendo lobby/spectator si está activado)
+    local head = character:FindFirstChild("Head")
+    if showName and validPart(head) then
+        local text = p.Name
+        
+        -- Añadir etiqueta según estado
+        if isLobby then
+            text = text .. " [LOBBY]"
+        elseif isSpec then
+            text = text .. " [ESPECTADOR]"
+        end
+        
+        local existingTag = head:FindFirstChild("ESP_Tag")
+        
+        if not existingTag then
+            -- Crear nuevo tag optimizado
+            local bb = Instance.new("BillboardGui")
+            bb.Name = "ESP_Tag"
+            bb.AlwaysOnTop = true
+            bb.Size = UDim2.new(0, 180, 0, 30)
+            bb.StudsOffset = Vector3.new(0, 3.5, 0)
+            bb.Enabled = true
+            bb.Parent = head
+            
+            local label = Instance.new("TextLabel")
+            label.Name = "Label"
+            label.BackgroundTransparency = 1
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.Font = Enum.Font.GothamMedium
+            label.Text = text
+            label.TextSize = 13
+            label.TextColor3 = color
+            label.TextStrokeTransparency = 0.3
+            label.TextStrokeColor3 = Color3.new(0, 0, 0)
+            label.Parent = bb
+            
+            table.insert(espObjects, bb)
+        else
+            -- Actualizar tag existente
+            local label = existingTag:FindFirstChild("Label")
+            if label then
+                label.Text = text
+                label.TextColor3 = color
+            end
+            existingTag.Enabled = true
+        end
+    elseif head and head:FindFirstChild("ESP_Tag") then
+        if not showName then
+            head.ESP_Tag.Enabled = false
+        end
+    end
+    
+    -- Actualizar cache
+    playerCache[p] = {
+        lastUpdate = tick(),
+        character = character,
+        color = color,
+        isLobby = isLobby,
+        isSpectator = isSpec
+    }
 end
 
 local function updateAllPlayersESP()
@@ -316,37 +328,38 @@ local function updateAllPlayersESP()
     if now - lastPlayerESPUpdate < PLAYER_ESP_INTERVAL then return end
     lastPlayerESPUpdate = now
     
-    local playersToProcess = {}
-    local playerCount = 0
-    
-    -- Recolectar jugadores para procesar
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LP and playerCount < 20 then  -- Límite de 20 jugadores
-            playersToProcess[player] = true
-            playerCount = playerCount + 1
-        end
-    end
-    
-    -- Limpiar jugadores que ya no están
-    for player, data in pairs(playerCache) do
-        if not playersToProcess[player] or not player.Parent then
+    -- Procesar jugadores existentes primero (más rápido)
+    for player, cacheData in pairs(playerCache) do
+        if player and player.Parent then
+            local shouldUpdate = true
+            
+            if cacheData then
+                -- Solo actualizar si pasó más tiempo del intervalo o si cambió el estado
+                local timeSinceUpdate = now - (cacheData.lastUpdate or 0)
+                local currentIsLobby = isInLobby(player)
+                local currentIsSpec = isSpectator(player)
+                
+                shouldUpdate = (timeSinceUpdate > PLAYER_ESP_INTERVAL) or 
+                              (currentIsLobby ~= cacheData.isLobby) or
+                              (currentIsSpec ~= cacheData.isSpectator)
+            end
+            
+            if shouldUpdate then
+                applyOptimizedPlayerESP(player)
+            end
+        else
+            -- Limpiar jugador que ya no existe
             cleanPlayerESP(player)
             playerCache[player] = nil
         end
     end
     
-    -- Procesar jugadores
-    for player, _ in pairs(playersToProcess) do
-        local cacheData = playerCache[player]
-        local shouldUpdate = true
-        
-        if cacheData then
-            -- Solo actualizar si pasaron más de 2 segundos
-            shouldUpdate = (now - (cacheData.lastUpdate or 0)) > 2
-        end
-        
-        if shouldUpdate then
-            applyOptimizedPlayerESP(player)
+    -- Verificar jugadores nuevos
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and not playerCache[player] then
+            if player.Character then
+                applyOptimizedPlayerESP(player)
+            end
         end
     end
 end
@@ -357,6 +370,14 @@ local function startOptimizedESPLoop()
         espLoopConn = nil
     end
     
+    -- Aplicar ESP inmediatamente a todos los jugadores
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            applyOptimizedPlayerESP(player)
+        end
+    end
+    
+    -- Iniciar loop de actualización
     espLoopConn = RunService.Heartbeat:Connect(function()
         updateAllPlayersESP()
     end)
@@ -369,88 +390,59 @@ local function stopOptimizedESPLoop()
     end
     
     -- Limpiar todos los jugadores
-    for player, data in pairs(playerCache) do
+    for player, _ in pairs(playerCache) do
         cleanPlayerESP(player)
     end
     
     playerCache = {}
     lastPlayerESPUpdate = 0
-    
-    -- Limpiar objetos ESP
-    for i = #espObjects, 1, -1 do
-        local obj = espObjects[i]
-        if obj and (obj.Name == "ESP_Tag" or obj.Name == "ESP_Highlight") then
-            pcall(function() obj:Destroy() end)
-            table.remove(espObjects, i)
-        end
-    end
 end
 
-local function watchPlayerOptimized(p)
-    if p == LP then return end
-    if connections[p] then return end
-    
-    local playerConns = {}
-    
-    -- Conectar eventos
-    playerConns.characterAdded = p.CharacterAdded:Connect(function(character)
-        task.wait(1)  -- Esperar a que cargue
-        if playerESPEnabled or nametagsEnabled then
-            applyOptimizedPlayerESP(p)
-        end
-    end)
-    
-    playerConns.teamChanged = p:GetPropertyChangedSignal("Team"):Connect(function()
-        if playerESPEnabled or nametagsEnabled then
-            task.wait(0.5)
-            applyOptimizedPlayerESP(p)
-        end
-    end)
-    
-    playerConns.spectatorChanged = p:GetAttributeChangedSignal("Spectator"):Connect(function()
-        if playerESPEnabled or nametagsEnabled then
-            task.wait(0.5)
-            applyOptimizedPlayerESP(p)
-        end
-    end)
-    
-    -- Aplicar inicialmente si tiene personaje
-    if p.Character then
-        task.spawn(function()
-            task.wait(1)
-            if playerESPEnabled or nametagsEnabled then
-                applyOptimizedPlayerESP(p)
+-- Sistema de observadores (para detectar cambios inmediatos)
+local function setupPlayerWatchers()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            if not connections[p] then
+                local playerConns = {}
+                
+                playerConns.characterAdded = p.CharacterAdded:Connect(function(character)
+                    task.wait(0.8)
+                    if playerESPEnabled or nametagsEnabled then
+                        applyOptimizedPlayerESP(p)
+                    end
+                end)
+                
+                playerConns.teamChanged = p:GetPropertyChangedSignal("Team"):Connect(function()
+                    task.wait(0.3)
+                    if playerESPEnabled or nametagsEnabled then
+                        applyOptimizedPlayerESP(p)
+                    end
+                end)
+                
+                connections[p] = playerConns
+                
+                -- Aplicar inicialmente
+                if p.Character then
+                    task.spawn(function()
+                        task.wait(0.8)
+                        if playerESPEnabled or nametagsEnabled then
+                            applyOptimizedPlayerESP(p)
+                        end
+                    end)
+                end
             end
-        end)
-    end
-    
-    connections[p] = playerConns
-end
-
-local function unwatchPlayerOptimized(p)
-    if connections[p] then
-        for _, conn in pairs(connections[p]) do
-            pcall(function() conn:Disconnect() end)
         end
-        connections[p] = nil
-    end
-    
-    cleanPlayerESP(p)
-    playerCache[p] = nil
-end
-
--- Inicializar observadores para jugadores existentes
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= LP then
-        watchPlayerOptimized(p)
     end
 end
 
--- Observador para nuevos jugadores
+-- Inicializar al cargar
+setupPlayerWatchers()
+
+-- Observadores para nuevos jugadores
 Players.PlayerAdded:Connect(function(p)
     if p ~= LP then
-        watchPlayerOptimized(p)
         task.wait(1)
+        setupPlayerWatchers()
         if playerESPEnabled or nametagsEnabled then
             applyOptimizedPlayerESP(p)
         end
@@ -458,7 +450,14 @@ Players.PlayerAdded:Connect(function(p)
 end)
 
 Players.PlayerRemoving:Connect(function(p)
-    unwatchPlayerOptimized(p)
+    if connections[p] then
+        for _, conn in pairs(connections[p]) do
+            pcall(function() conn:Disconnect() end)
+        end
+        connections[p] = nil
+    end
+    cleanPlayerESP(p)
+    playerCache[p] = nil
 end)
 
 -- ============================================
