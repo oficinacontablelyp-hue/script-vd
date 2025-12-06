@@ -1334,200 +1334,249 @@ SurvivorTab:CreateToggle({
 SurvivorTab:CreateSection("Heal")
 
 local instaHealEnabled = false
-local healRemoteHook = nil
-local originalHealFireServer = nil
-local healConnections = {}
+local originalHealFunctions = {}
+local healRemotes = {}
+
+-- Encontrar todos los RemoteEvents de curación
+local function findHealRemotes()
+    for _, obj in ipairs(game:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            local nameLower = obj.Name:lower()
+            if nameLower:find("heal") or nameLower:find("revive") or nameLower:find("cure") or 
+               nameLower:find("health") or nameLower:find("medkit") then
+                healRemotes[obj] = obj.FireServer
+            end
+        end
+    end
+end
+
+-- Función para curar completamente a un survivor
+local function healSurvivorCompletely(survivorCharacter)
+    if not survivorCharacter or not survivorCharacter.Parent then return end
+    
+    pcall(function()
+        -- Resetear todos los estados de heridas
+        survivorCharacter:SetAttribute("Injured", false)
+        survivorCharacter:SetAttribute("Bleeding", false)
+        survivorCharacter:SetAttribute("Downed", false)
+        survivorCharacter:SetAttribute("Dying", false)
+        survivorCharacter:SetAttribute("Health", 100)
+        survivorCharacter:SetAttribute("Revived", true)
+        
+        -- Restaurar Humanoid
+        local humanoid = survivorCharacter:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Health = humanoid.MaxHealth
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+            
+            -- Levantar si estaba caído
+            if humanoid:GetState() == Enum.HumanoidStateType.FallingDown or 
+               humanoid:GetState() == Enum.HumanoidStateType.Ragdoll then
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end
+        
+        -- Eliminar efectos visuales de heridas
+        for _, effect in ipairs(survivorCharacter:GetChildren()) do
+            local nameLower = effect.Name:lower()
+            if effect:IsA("ParticleEmitter") and (nameLower:find("blood") or nameLower:find("injure")) then
+                effect.Enabled = false
+            end
+        end
+        
+        -- Forzar animación de estar sano
+        local animator = survivorCharacter:FindFirstChildOfClass("Animator")
+        if animator then
+            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                if track.Animation.Name:lower():find("injure") or 
+                   track.Animation.Name:lower():find("hurt") or
+                   track.Animation.Name:lower():find("down") then
+                    track:Stop()
+                end
+            end
+        end
+    end)
+end
+
+-- Interceptar eventos de curación
+local function interceptHealEvents()
+    findHealRemotes()
+    
+    for remote, originalFire in pairs(healRemotes) do
+        if not originalHealFunctions[remote] then
+            originalHealFunctions[remote] = originalFire
+            
+            remote.FireServer = newcclosure(function(self, ...)
+                local args = {...}
+                
+                if instaHealEnabled and #args >= 1 then
+                    local target = args[1]
+                    
+                    -- Verificar si el objetivo es un survivor (no el jugador mismo)
+                    if typeof(target) == "Instance" and target:IsA("Model") then
+                        local targetPlayer = Players:GetPlayerFromCharacter(target)
+                        
+                        if targetPlayer and targetPlayer ~= LP then
+                            -- Curar completamente al survivor
+                            healSurvivorCompletely(target)
+                            
+                            -- Enviar evento de curación completa
+                            local modifiedArgs = {}
+                            for i, arg in ipairs(args) do
+                                if i == 2 and type(arg) == "string" then
+                                    modifiedArgs[i] = "CompleteHeal"
+                                elseif i == 3 and type(arg) == "number" then
+                                    modifiedArgs[i] = 100  -- 100% de curación
+                                else
+                                    modifiedArgs[i] = arg
+                                end
+                            end
+                            
+                            return originalFire(self, unpack(modifiedArgs))
+                        end
+                    end
+                end
+                
+                return originalFire(self, ...)
+            end)
+        end
+    end
+end
+
+-- Interceptar herramientas de curación
+local function interceptHealTools()
+    local char = LP.Character
+    if not char then return end
+    
+    -- Buscar herramientas médicas
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") then
+            local toolName = tool.Name:lower()
+            if toolName:find("med") or toolName:find("heal") or toolName:find("kit") then
+                
+                for _, script in ipairs(tool:GetDescendants()) do
+                    if script:IsA("LocalScript") or script:IsA("Script") then
+                        pcall(function()
+                            local env = getfenv(script)
+                            
+                            -- Interceptar función de uso
+                            if env.use then
+                                local originalUse = env.use
+                                env.use = function(target, ...)
+                                    if instaHealEnabled and target and target:IsA("Model") then
+                                        local targetPlayer = Players:GetPlayerFromCharacter(target)
+                                        if targetPlayer and targetPlayer ~= LP then
+                                            healSurvivorCompletely(target)
+                                        end
+                                    end
+                                    return originalUse(target, ...)
+                                end
+                            end
+                            
+                            -- Interceptar función de heal
+                            if env.heal then
+                                local originalHeal = env.heal
+                                env.heal = function(target, ...)
+                                    if instaHealEnabled and target and target:IsA("Model") then
+                                        local targetPlayer = Players:GetPlayerFromCharacter(target)
+                                        if targetPlayer and targetPlayer ~= LP then
+                                            healSurvivorCompletely(target)
+                                            return true  -- Indicar que la curación fue exitosa
+                                        end
+                                    end
+                                    return originalHeal(target, ...)
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Monitorear interacciones de curación
+local function monitorHealInteractions()
+    if not LP.Character then return end
+    
+    local humanoidRootPart = LP.Character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    -- Buscar survivors cercanos heridos
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            local targetChar = player.Character
+            local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+            
+            if targetRoot then
+                local distance = (humanoidRootPart.Position - targetRoot.Position).Magnitude
+                
+                -- Si está dentro del rango de interacción
+                if distance < 10 then
+                    -- Verificar si está herido o caído
+                    local isInjured = targetChar:GetAttribute("Injured") or 
+                                     targetChar:GetAttribute("Downed") or
+                                     targetChar:GetAttribute("Dying") or false
+                    
+                    local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
+                    if humanoid and humanoid.Health < humanoid.MaxHealth then
+                        isInjured = true
+                    end
+                    
+                    if isInjured and instaHealEnabled then
+                        -- Curar automáticamente
+                        healSurvivorCompletely(targetChar)
+                    end
+                end
+            end
+        end
+    end
+end
 
 SurvivorTab:CreateToggle({
-    Name = "Insta Heal Others",
+    Name = "Insta Heal",
     CurrentValue = false,
     Callback = function(v)
         instaHealEnabled = v
         
         if v then
-            -- Buscar el RemoteEvent de curación
-            local healRemote = findHealRemote()
+            -- Interceptar eventos de curación
+            interceptHealEvents()
             
-            if healRemote then
-                -- Interceptar el evento de curación
-                local oldFireServer = healRemote.FireServer
-                healRemote.FireServer = newcclosure(function(self, ...)
-                    local args = {...}
-                    
-                    if instaHealEnabled and #args >= 2 then
-                        local targetPlayer = args[1]
-                        local healAction = args[2]
-                        
-                        -- Verificar que no sea auto-curación
-                        if targetPlayer ~= LP and 
-                           (healAction == "Heal" or healAction == "heal" or healAction == "StartHeal") then
-                            
-                            -- Forzar curación completa al objetivo
-                            if targetPlayer.Character then
-                                -- Resetear atributos de heridas
-                                targetPlayer.Character:SetAttribute("Injured", false)
-                                targetPlayer.Character:SetAttribute("Bleeding", false)
-                                targetPlayer.Character:SetAttribute("Health", 100)
-                                
-                                -- También buscar y ajustar el Humanoid
-                                local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
-                                if humanoid then
-                                    humanoid.Health = humanoid.MaxHealth
-                                end
-                                
-                                -- Enviar notificación visual
-                                Rayfield:Notify({
-                                    Title = "Insta Heal",
-                                    Content = "Jugador curado completamente: " .. targetPlayer.Name,
-                                    Duration = 2
-                                })
-                            end
-                        end
-                    end
-                    
-                    return oldFireServer(self, ...)
-                end)
-                
-                -- Guardar referencia para restaurar después
-                originalHealFireServer = oldFireServer
-                healRemoteHook = healRemote
-            else
-                Rayfield:Notify({
-                    Title = "Error",
-                    Content = "No se encontró el evento de curación",
-                    Duration = 3,
-                    Image = 4483362458
-                })
-            end
+            -- Interceptar herramientas
+            interceptHealTools()
             
-            -- También conectar a eventos de interacción
-            setupHealInteractions()
+            -- Iniciar monitoreo de proximidad
+            local healMonitorConnection
+            healMonitorConnection = RunService.Heartbeat:Connect(function()
+                if instaHealEnabled then
+                    monitorHealInteractions()
+                    interceptHealTools()  -- Revisar si hay nuevas herramientas
+                else
+                    healMonitorConnection:Disconnect()
+                end
+            end)
+            
+            -- Reconectar cuando el personaje cambie
+            LP.CharacterAdded:Connect(function()
+                task.wait(1)
+                if instaHealEnabled then
+                    interceptHealTools()
+                end
+            end)
             
         else
-            -- Desactivar y restaurar
-            if healRemoteHook and originalHealFireServer then
-                healRemoteHook.FireServer = originalHealFireServer
-                healRemoteHook = nil
-                originalHealFireServer = nil
-            end
-            
-            -- Limpiar conexiones
-            if healConnections then
-                for _, conn in pairs(healConnections) do
-                    conn:Disconnect()
+            -- Restaurar funciones originales
+            for remote, originalFunc in pairs(originalHealFunctions) do
+                if remote and originalFunc then
+                    remote.FireServer = originalFunc
                 end
-                healConnections = {}
             end
+            originalHealFunctions = {}
+            healRemotes = {}
         end
     end
 })
-
--- Función para encontrar el RemoteEvent de curación
-function findHealRemote()
-    -- Buscar en diferentes lugares comunes
-    local places = {
-        ReplicatedStorage,
-        Workspace,
-        game:GetService("Players")
-    }
-    
-    for _, place in ipairs(places) do
-        for _, obj in ipairs(place:GetDescendants()) do
-            if obj:IsA("RemoteEvent") then
-                local name = obj.Name:lower()
-                if name:find("heal") or 
-                   name:find("health") or 
-                   name:find("cure") or 
-                   name:find("revive") then
-                    return obj
-                end
-            end
-        end
-    end
-    
-    -- Buscar también en Scripts específicos
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Character then
-            for _, tool in ipairs(player.Character:GetChildren()) do
-                if tool:IsA("Tool") and (tool.Name:lower():find("med") or tool.Name:lower():find("heal")) then
-                    for _, script in ipairs(tool:GetDescendants()) do
-                        if script:IsA("RemoteEvent") then
-                            return script
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return nil
-end
-
--- Configurar interacciones de curación
-function setupHealInteractions()
-    healConnections = healConnections or {}
-    
-    -- Monitorear cuando te acercas a jugadores heridos
-    local proximityCheck
-    proximityCheck = game:GetService("RunService").Heartbeat:Connect(function()
-        if not instaHealEnabled then 
-            proximityCheck:Disconnect()
-            return 
-        end
-        
-        local myChar = LP.Character
-        if not myChar then return end
-        
-        local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return end
-        
-        -- Buscar jugadores cercanos heridos
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LP and player.Character then
-                local targetChar = player.Character
-                local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
-                
-                if targetRoot then
-                    local distance = (myRoot.Position - targetRoot.Position).Magnitude
-                    
-                    -- Si está dentro del rango de curación (unidades de Roblox)
-                    if distance < 10 then
-                        -- Verificar si está herido
-                        local isInjured = targetChar:GetAttribute("Injured") or
-                                         targetChar:GetAttribute("Bleeding") or
-                                         (targetChar:FindFirstChildOfClass("Humanoid") and 
-                                          targetChar:FindFirstChildOfClass("Humanoid").Health < 100)
-                        
-                        if isInjured then
-                            -- Auto-activar curación
-                            pcall(function()
-                                -- Intentar diferentes métodos
-                                local args = {player, "Heal", true, 100}
-                                
-                                -- Enviar evento de curación completa
-                                if healRemoteHook then
-                                    healRemoteHook:FireServer(unpack(args))
-                                end
-                                
-                                -- También forzar atributos directamente
-                                targetChar:SetAttribute("Injured", false)
-                                targetChar:SetAttribute("Bleeding", false)
-                                targetChar:SetAttribute("Health", 100)
-                                
-                                local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
-                                if humanoid then
-                                    humanoid.Health = humanoid.MaxHealth
-                                end
-                            end)
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    
-    table.insert(healConnections, proximityCheck)
-end
 
 -- Sección Anti-Ralentización
 SurvivorTab:CreateSection("Anti-Ralentización")
@@ -1747,207 +1796,346 @@ KillerTab:CreateSlider({
 -- Sección Anti-Stun
 KillerTab:CreateSection("Anti-Stun")
 
+local antiStunEnabled = false
+local antiStunConnection = nil
+local originalWalkSpeed = 16
+local originalJumpPower = 50
+
+-- Interceptar eventos de stun
+local function interceptStunEvents()
+    -- Buscar RemoteEvents de stun
+    for _, obj in ipairs(game:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            local nameLower = obj.Name:lower()
+            if nameLower:find("stun") or nameLower:find("immobile") or nameLower:find("pallet") or nameLower:find("hit") then
+                
+                local originalFire = obj.FireServer
+                obj.FireServer = newcclosure(function(self, ...)
+                    local args = {...}
+                    
+                    if antiStunEnabled then
+                        -- Verificar si el stun es para el killer
+                        local targetKiller = false
+                        
+                        for _, arg in ipairs(args) do
+                            if typeof(arg) == "Instance" and arg:IsA("Model") then
+                                local player = Players:GetPlayerFromCharacter(arg)
+                                if player == LP then
+                                    targetKiller = true
+                                    break
+                                end
+                            elseif type(arg) == "string" and (arg:lower() == "stun" or arg:lower() == "immobile") then
+                                targetKiller = true
+                                break
+                            end
+                        end
+                        
+                        if targetKiller then
+                            -- Bloquear completamente el stun
+                            return nil
+                        end
+                    end
+                    
+                    return originalFire(self, ...)
+                end)
+            end
+        end
+    end
+end
+
+-- Prevenir stun continuamente
+local function preventStunContinuously()
+    if antiStunConnection then return end
+    
+    antiStunConnection = RunService.Heartbeat:Connect(function()
+        if not antiStunEnabled then return end
+        
+        local char = LP.Character
+        if not char then return end
+        
+        pcall(function()
+            -- Forzar que los atributos de stun sean siempre false
+            char:SetAttribute("IsStunned", false)
+            char:SetAttribute("Immobile", false)
+            
+            -- También eliminar otros atributos relacionados
+            char:SetAttribute("StunDuration", 0)
+            char:SetAttribute("StunnedTime", 0)
+            char:SetAttribute("PalletStunned", false)
+            
+            -- Mantener movilidad del humanoid
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                -- Guardar valores originales si no están guardados
+                if originalWalkSpeed == nil then
+                    originalWalkSpeed = humanoid.WalkSpeed
+                    originalJumpPower = humanoid.JumpPower
+                end
+                
+                -- Forzar velocidad normal
+                humanoid.WalkSpeed = originalWalkSpeed
+                humanoid.JumpPower = originalJumpPower
+                
+                -- Prevenir estados de stun en el Humanoid
+                local currentState = humanoid:GetState()
+                if currentState == Enum.HumanoidStateType.FallingDown or 
+                   currentState == Enum.HumanoidStateType.Ragdoll or
+                   currentState == Enum.HumanoidStateType.GettingUp then
+                    
+                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                end
+                
+                -- Forzar que pueda moverse
+                humanoid.PlatformStand = false
+            end
+            
+            -- Eliminar cualquier efecto visual de stun
+            for _, child in ipairs(char:GetChildren()) do
+                local nameLower = child.Name:lower()
+                if child:IsA("BoolValue") or child:IsA("NumberValue") then
+                    if nameLower:find("stun") or nameLower:find("immobile") or nameLower:find("daze") then
+                        child:Destroy()
+                    end
+                elseif child:IsA("ParticleEmitter") and nameLower:find("stun") then
+                    child:Destroy()
+                end
+            end
+            
+            -- Detener animaciones de stun
+            local animator = char:FindFirstChildOfClass("Animator")
+            if animator then
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    local animName = track.Animation.Name:lower()
+                    if animName:find("stun") or animName:find("hit") or animName:find("fall") or animName:find("daze") then
+                        track:Stop()
+                    end
+                end
+            end
+            
+            -- Eliminar fuerzas físicas que causen inmovilidad
+            local rootPart = char:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                for _, force in ipairs(rootPart:GetChildren()) do
+                    if force:IsA("BodyVelocity") or force:IsA("BodyForce") then
+                        if force.Name:lower():find("stun") or force.Name:lower():find("immobile") then
+                            force:Destroy()
+                        end
+                    end
+                end
+            end
+            
+            -- Interceptar scripts que puedan causar stun
+            for _, tool in ipairs(Workspace:GetDescendants()) do
+                if tool:IsA("Model") and tool.Name:lower():find("pallet") then
+                    for _, script in ipairs(tool:GetDescendants()) do
+                        if script:IsA("Script") then
+                            pcall(function()
+                                local env = getfenv(script)
+                                if env.stunPlayer then
+                                    local originalStun = env.stunPlayer
+                                    env.stunPlayer = function(target, ...)
+                                        if antiStunEnabled and target == LP.Character then
+                                            return nil
+                                        end
+                                        return originalStun(target, ...)
+                                    end
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
+
 KillerTab:CreateToggle({
     Name = "Anti-Stun",
     CurrentValue = false,
     Callback = function(v)
+        antiStunEnabled = v
+        
         if v then
-            -- Activar anti-stun
-            local char = LP.Character
-            if char then
-                char:SetAttribute("IsStunned", false)
-                
-                -- Monitorear constantemente para evitar stun
-                RunService.Heartbeat:Connect(function()
+            -- Interceptar eventos
+            interceptStunEvents()
+            
+            -- Iniciar prevención continua
+            preventStunContinuously()
+            
+            -- Aplicar inmediatamente
+            task.spawn(function()
+                local char = LP.Character
+                if char then
+                    char:SetAttribute("IsStunned", false)
+                    char:SetAttribute("Immobile", false)
+                    
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        originalWalkSpeed = humanoid.WalkSpeed
+                        originalJumpPower = humanoid.JumpPower
+                    end
+                end
+            end)
+            
+            -- Reconectar cuando el personaje cambie
+            LP.CharacterAdded:Connect(function()
+                task.wait(1)
+                if antiStunEnabled then
+                    local char = LP.Character
                     if char then
                         char:SetAttribute("IsStunned", false)
+                        char:SetAttribute("Immobile", false)
                     end
-                end)
-            end
+                end
+            end)
+            
         else
             -- Desactivar
-            local char = LP.Character
-            if char then
-                char:SetAttribute("IsStunned", nil)
+            if antiStunConnection then
+                antiStunConnection:Disconnect()
+                antiStunConnection = nil
             end
+            
+            -- Restaurar velocidad si estaba guardada
+            task.spawn(function()
+                local char = LP.Character
+                if char and originalWalkSpeed then
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        humanoid.WalkSpeed = originalWalkSpeed
+                        humanoid.JumpPower = originalJumpPower
+                    end
+                end
+            end)
         end
     end
 })
 
--- Sección Hitbox Expander (Invisible)
+-- Sección Hitbox Expander
 KillerTab:CreateSection("Hitbox Expander")
 
 local hitboxExpanderEnabled = false
-local hitboxMultiplier = 1.5
-local hitboxTransparency = 0.9
-local hitboxWelds = {}
-local originalHits = {}
+local hitboxSize = 8
+local hitboxTransparency = 0.5
+local survivorHitboxes = {}
+local hitboxConnections = {}
 
--- Función para interceptar los ataques del killer
-local function interceptKillerAttacks()
-    local killerChar = LP.Character
-    if not killerChar then return end
+local function createSurvivorHitbox(character)
+    if not character or not character.Parent then return nil
+    end
     
-    -- Buscar herramientas de ataque del killer
-    for _, tool in ipairs(killerChar:GetChildren()) do
-        if tool:IsA("Tool") and (tool.Name:lower():find("knife") or tool.Name:lower():find("weapon") or tool.Name:lower():find("attack")) then
-            -- Buscar scripts de ataque
-            for _, script in ipairs(tool:GetDescendants()) do
-                if script:IsA("LocalScript") or script:IsA("Script") then
-                    if script.Source and (script.Source:find("Hit") or script.Source:find("hit") or script.Source:find("Damage")) then
-                        -- Interceptar funciones de daño
-                        local env = getfenv(script)
-                        local originalHitFunction = env.Hit or env.hit or env.onHit
-                        
-                        if originalHitFunction and type(originalHitFunction) == "function" then
-                            originalHits[script] = originalHitFunction
-                            
-                            local function expandedHit(target, ...)
-                                if hitboxExpanderEnabled and target and target:IsA("Model") then
-                                    -- Verificar si el objetivo es un survivor
-                                    local player = Players:GetPlayerFromCharacter(target)
-                                    if player and getRole(player) == "Survivor" then
-                                        -- Verificar distancia con hitbox expandida
-                                        local killerRoot = killerChar:FindFirstChild("HumanoidRootPart")
-                                        local targetRoot = target:FindFirstChild("HumanoidRootPart")
-                                        
-                                        if killerRoot and targetRoot then
-                                            local distance = (killerRoot.Position - targetRoot.Position).Magnitude
-                                            local baseRange = 10 -- Rango base del ataque
-                                            local expandedRange = baseRange * hitboxMultiplier
-                                            
-                                            -- Si está dentro del rango expandido, permitir el golpe
-                                            if distance <= expandedRange then
-                                                return originalHitFunction(target, ...)
-                                            else
-                                                return nil
-                                            end
-                                        end
-                                    end
-                                end
-                                return originalHitFunction(target, ...)
-                            end
-                            
-                            if env.Hit then env.Hit = expandedHit end
-                            if env.hit then env.hit = expandedHit end
-                            if env.onHit then env.onHit = expandedHit end
-                        end
-                    end
-                end
+    if survivorHitboxes[character] then
+        survivorHitboxes[character]:Destroy()
+        survivorHitboxes[character] = nil
+    end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil
+      end
+    
+    local hitbox = Instance.new("Part")
+    hitbox.Name = "SurvivorHitbox"
+    hitbox.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+    hitbox.Transparency = hitboxTransparency
+    hitbox.Color = Color3.fromRGB(255, 50, 50)
+    hitbox.Material = Enum.Material.Neon
+    hitbox.CanCollide = false
+    hitbox.Anchored = false
+    hitbox.CastShadow = false
+    hitbox.Massless = true
+    
+    local weld = Instance.new("Weld")
+    weld.Part0 = humanoidRootPart
+    weld.Part1 = hitbox
+    weld.C0 = CFrame.new(0, 0, 0)
+    weld.Parent = hitbox
+    
+    hitbox.Parent = character
+    survivorHitboxes[character] = hitbox
+    
+    local touchedConnection = hitbox.Touched:Connect(function(hit)
+        if not hitboxExpanderEnabled then return end
+        
+        local hitterModel = hit:FindFirstAncestorOfClass("Model")
+        if hitterModel then
+            local hitterPlayer = Players:GetPlayerFromCharacter(hitterModel)
+            if hitterPlayer == LP then
+                applyDamageToSurvivor(character)
             end
         end
-    end
+    end)
+    
+    hitboxConnections[hitbox] = touchedConnection
+    
+    return hitbox
 end
 
--- Función para crear hitbox visual (solo visual, no funcional)
-local function createInvisibleHitbox(character, multiplier)
-    if not character or not character.Parent then return nil end
+local function applyDamageToSurvivor(survivorCharacter)
+    if not survivorCharacter or not survivorCharacter.Parent then return end
     
-    -- Buscar si ya existe una hitbox
-    local existingHitbox = character:FindFirstChild("InvisibleHitbox")
-    if existingHitbox then
-        existingHitbox:Destroy()
-    end
-    
-    -- Crear una parte invisible para la hitbox
-    local hitboxPart = Instance.new("Part")
-    hitboxPart.Name = "InvisibleHitbox"
-    hitboxPart.Anchored = false
-    hitboxPart.CanCollide = false
-    hitboxPart.Transparency = hitboxTransparency
-    hitboxPart.Color = Color3.fromRGB(255, 0, 0)
-    hitboxPart.Material = Enum.Material.Neon
-    hitboxPart.CastShadow = false
-    hitboxPart.Locked = true
-    
-    -- Usar Attachment en lugar de Weld para mejor seguimiento
-    local rootPart = character:FindFirstChild("HumanoidRootPart") or 
-                     character:FindFirstChild("Torso") or 
-                     character:FindFirstChild("UpperTorso")
-    
-    if rootPart then
-        -- Ajustar tamaño basado en el estado del survivor
-        local isDowned = character:GetAttribute("Downed") or 
-                        character:GetAttribute("Injured") or false
-        
-        local baseSize
-        if isDowned then
-            baseSize = Vector3.new(3, 1.5, 3) -- Hitbox más plana para survivors caídos
-        else
-            baseSize = rootPart.Size
-        end
-        
-        hitboxPart.Size = baseSize * multiplier
-        hitboxPart.CFrame = rootPart.CFrame
-        
-        -- Crear Attachment para mejor seguimiento
-        local attachment = Instance.new("Attachment")
-        attachment.Parent = rootPart
-        
-        local bodyPosition = Instance.new("BodyPosition")
-        bodyPosition.P = 15000
-        bodyPosition.D = 1000
-        bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bodyPosition.Position = rootPart.Position
-        bodyPosition.Parent = hitboxPart
-        
-        -- Conectar para actualizar posición
-        local connection
-        connection = RunService.Heartbeat:Connect(function()
-            if not hitboxPart or not hitboxPart.Parent then
-                connection:Disconnect()
-                return
-            end
-            
-            if rootPart and rootPart.Parent then
-                bodyPosition.Position = rootPart.Position
-                
-                -- Actualizar rotación también
-                hitboxPart.CFrame = CFrame.new(rootPart.Position) * rootPart.CFrame.Rotation
-                
-                -- Ajustar transparencia basado en estado
-                if character:GetAttribute("OnHook") or character:GetAttribute("BeingCarried") then
-                    hitboxPart.Transparency = 1
-                else
-                    hitboxPart.Transparency = hitboxTransparency
-                end
+    local damageRemote = findDamageRemote()
+    if damageRemote then
+        damageRemote:FireServer(survivorCharacter, "Hit", 1)
+    else
+        pcall(function()
+            local humanoid = survivorCharacter:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Health = humanoid.Health - 30
             end
         end)
-        
-        hitboxWelds[character] = connection
     end
-    
-    hitboxPart.Parent = character
-    return hitboxPart
 end
 
--- Interceptar eventos de agarre y gancho
-local function setupHookInterception()
-    -- Buscar RemoteEvents relacionados con ganchos
-    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-        if obj:IsA("RemoteEvent") and (obj.Name:lower():find("hook") or obj.Name:lower():find("carry")) then
-            local oldFireServer = obj.FireServer
-            obj.FireServer = newcclosure(function(self, ...)
-                local args = {...}
-                
-                if hitboxExpanderEnabled and #args > 0 then
-                    local target = args[1]
-                    if typeof(target) == "Instance" and target:IsA("Model") then
-                        local player = Players:GetPlayerFromCharacter(target)
-                        if player and getRole(player) == "Survivor" then
-                            -- Limpiar hitbox temporalmente durante el agarre
-                            local hitbox = target:FindFirstChild("InvisibleHitbox")
-                            if hitbox then
-                                hitbox.Transparency = 1
-                            end
-                        end
-                    end
-                end
-                
-                return oldFireServer(self, ...)
-            end)
+local function findDamageRemote()
+    for _, obj in ipairs(game:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            local nameLower = obj.Name:lower()
+            if nameLower:find("damage") or nameLower:find("hit") or nameLower:find("attack") then
+                return obj
+            end
         end
     end
+    return nil
+end
+
+local function createHitboxesForAllSurvivors()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            createSurvivorHitbox(player.Character)
+        end
+    end
+end
+
+local function updateHitboxSizes()
+    for character, hitbox in pairs(survivorHitboxes) do
+        if character and character.Parent and hitbox then
+            hitbox.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+        end
+    end
+end
+
+local function updateHitboxTransparency()
+    for character, hitbox in pairs(survivorHitboxes) do
+        if character and character.Parent and hitbox then
+            hitbox.Transparency = hitboxTransparency
+        end
+    end
+end
+
+local function cleanupAllHitboxes()
+    for character, hitbox in pairs(survivorHitboxes) do
+        if hitbox then
+            hitbox:Destroy()
+        end
+    end
+    survivorHitboxes = {}
+    
+    for hitbox, connection in pairs(hitboxConnections) do
+        if connection then
+            connection:Disconnect()
+        end
+    end
+    hitboxConnections = {}
 end
 
 KillerTab:CreateToggle({
@@ -1955,173 +2143,66 @@ KillerTab:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         hitboxExpanderEnabled = v
+        
         if v then
-            -- Interceptar ataques del killer
-            interceptKillerAttacks()
+            createHitboxesForAllSurvivors()
             
-            -- Configurar intercepción de ganchos
-            setupHookInterception()
-            
-            -- Crear hitbox visual para todos los survivors
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP and getRole(player) == "Survivor" then
-                    if player.Character then
-                        createInvisibleHitbox(player.Character, hitboxMultiplier)
+            local playerAddedConn = Players.PlayerAdded:Connect(function(player)
+                player.CharacterAdded:Connect(function(character)
+                    task.wait(0.5)
+                    if hitboxExpanderEnabled and player ~= LP then
+                        createSurvivorHitbox(character)
                     end
-                    
-                    -- Conectar para cuando el personaje cambie
-                    player.CharacterAdded:Connect(function(character)
-                        task.wait(0.5)  -- Esperar a que cargue completamente
+                end)
+            end)
+            table.insert(hitboxConnections, playerAddedConn)
+            
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LP then
+                    local charConn = player.CharacterAdded:Connect(function(character)
+                        task.wait(0.5)
                         if hitboxExpanderEnabled then
-                            createInvisibleHitbox(character, hitboxMultiplier)
+                            createSurvivorHitbox(character)
                         end
                     end)
+                    table.insert(hitboxConnections, charConn)
                 end
             end
             
         else
-            -- Eliminar todas las hitbox visuales
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player.Character then
-                    local hitbox = player.Character:FindFirstChild("InvisibleHitbox")
-                    if hitbox then
-                        hitbox:Destroy()
-                    end
-                end
-            end
-            
-            -- Limpiar conexiones
-            for character, connection in pairs(hitboxWelds) do
-                if connection then
-                    connection:Disconnect()
-                end
-            end
-            hitboxWelds = {}
-            
-            -- Restaurar funciones originales
-            for script, originalFunc in pairs(originalHits) do
-                local env = getfenv(script)
-                if env.Hit == expandedHit then env.Hit = originalFunc end
-                if env.hit == expandedHit then env.hit = originalFunc end
-                if env.onHit == expandedHit then env.onHit = originalFunc end
-            end
-            originalHits = {}
+            cleanupAllHitboxes()
         end
     end
 })
 
 KillerTab:CreateSlider({
-    Name = "Hitbox Size Multiplier",
-    Range = {1.0, 5.0},
-    Increment = 0.1,
-    CurrentValue = hitboxMultiplier,
-    Suffix = "x",
+    Name = "Hitbox Size",
+    Range = {5, 20},
+    Increment = 1,
+    Suffix = " units",
+    CurrentValue = hitboxSize,
     Callback = function(v)
-        hitboxMultiplier = v
+        hitboxSize = v
         if hitboxExpanderEnabled then
-            -- Actualizar tamaño de todas las hitbox existentes
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP and getRole(player) == "Survivor" and player.Character then
-                    local hitbox = player.Character:FindFirstChild("InvisibleHitbox")
-                    if hitbox then
-                        local rootPart = player.Character:FindFirstChild("HumanoidRootPart") or 
-                                       player.Character:FindFirstChild("Torso")
-                        if rootPart then
-                            local isDowned = player.Character:GetAttribute("Downed")
-                            local baseSize = isDowned and Vector3.new(3, 1.5, 3) or rootPart.Size
-                            hitbox.Size = baseSize * hitboxMultiplier
-                        end
-                    end
-                end
-            end
+            updateHitboxSizes()
         end
     end
 })
 
 KillerTab:CreateSlider({
     Name = "Hitbox Transparency",
-    Range = {0.1, 1.0},
+    Range = {0.1, 0.9},
     Increment = 0.1,
     CurrentValue = hitboxTransparency,
     Callback = function(v)
         hitboxTransparency = v
         if hitboxExpanderEnabled then
-            -- Actualizar transparencia de todas las hitbox
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LP and getRole(player) == "Survivor" and player.Character then
-                    local hitbox = player.Character:FindFirstChild("InvisibleHitbox")
-                    if hitbox then
-                        -- No hacer completamente invisible si no está en gancho
-                        if not player.Character:GetAttribute("OnHook") then
-                            hitbox.Transparency = math.min(hitboxTransparency, 0.95)
-                        end
-                    end
-                end
-            end
+            updateHitboxTransparency()
         end
     end
 })
 
 -- Sección Full Break Motor
-KillerTab:CreateSection("Full Break Motor")
-
-local fullBreakEnabled = false
-local breakConnection = nil
-local generatorStates = {}
-
-local function setupGeneratorMonitor(generator)
-    if generatorStates[generator] then return end
-    
-    generatorStates[generator] = {
-        lastProgress = generator:GetAttribute("RepairProgress") or 1,
-        lastCheck = tick()
-    }
-    
-    -- Monitorear cambios en el atributo RepairProgress
-    generator:GetAttributeChangedSignal("RepairProgress"):Connect(function()
-        if not fullBreakEnabled or getRole(LP) ~= "Killer" then return end
-        
-        local currentProgress = generator:GetAttribute("RepairProgress") or 1
-        local lastProgress = generatorStates[generator].lastProgress
-        
-        if currentProgress < lastProgress then
-          
-            if tick() - generatorStates[generator].lastCheck < 2 then
-              
-                if LP.Character then
-                    local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-                    local genPart = generator.PrimaryPart or generator:FindFirstChildWhichIsA("BasePart")
-                    
-                    if hrp and genPart and (hrp.Position - genPart.Position).Magnitude < 15 then
-                      
-                        task.wait(0.1)
-                        
-                        pcall(function()
-                            generator:SetAttribute("RepairProgress", 0)
-                            generator:SetAttribute("ProgressBar", 0)
-                            
-                            -- Efecto visual/sonoro opcional
-                            if genPart then
-                                local sound = Instance.new("Sound")
-                                sound.SoundId = "rbxassetid://9114822715"
-                                sound.Volume = 0.5
-                                sound.Parent = genPart
-                                sound:Play()
-                                game:GetService("Debris"):AddItem(sound, 2)
-                            end
-                        end)
-                    end
-                end
-            end
-        end
-        
-        -- Actualizar estado
-        generatorStates[generator].lastProgress = currentProgress
-        generatorStates[generator].lastCheck = tick()
-    end)
-end
-
---seccion full break generator
 KillerTab:CreateToggle({
     Name = "Full Break Generator",
     CurrentValue = false,
@@ -2129,137 +2210,180 @@ KillerTab:CreateToggle({
         fullBreakEnabled = v
         
         if v then
-            -- Conectar al evento de daño en los generadores
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("Model") and obj.Name:lower():find("generator") then
-                    setupGeneratorMonitor(obj)
+            -- Buscar y guardar RemoteEvents de daño a generadores
+            local generatorRemotes = {}
+            
+            for _, obj in ipairs(game:GetDescendants()) do
+                if obj:IsA("RemoteEvent") then
+                    local nameLower = obj.Name:lower()
+                    if nameLower:find("generator") or nameLower:find("damage") or nameLower:find("kick") or nameLower:find("break") then
+                        generatorRemotes[obj] = obj.FireServer
+                    end
                 end
             end
             
-            -- Monitorear nuevos generadores
-            local descAdded
-            descAdded = Workspace.DescendantAdded:Connect(function(obj)
-                if obj:IsA("Model") and obj.Name:lower():find("generator") then
-                    setupGeneratorMonitor(obj)
-                end
-            end)
-            
-            breakConnection = descAdded
-            
-            Rayfield:Notify({
-                Title = "Full Break Activado",
-                Content = "Patea generadores para romperlos completamente",
-                Duration = 3
-            })
-            
-        else
-            -- Limpiar
-            if breakConnection then
-                breakConnection:Disconnect()
-                breakConnection = nil
-            end
-            generatorStates = {}
-        end
-    end
-})
-
--- Función modificada para forzar progreso a 0% al patear
-function setupGeneratorMonitor(generator)
-    if generatorStates[generator] then return end
-    
-    generatorStates[generator] = true
-    
-    -- Buscar el script de progreso del generador
-    local function findProgressScript(model)
-        for _, descendant in ipairs(model:GetDescendants()) do
-            if descendant:IsA("Script") or descendant:IsA("LocalScript") then
-                if descendant.Name:lower():find("progress") or 
-                   descendant.Name:lower():find("repair") or
-                   (descendant.Source and descendant.Source:lower():find("progreso")) then
-                    return descendant
-                end
-            end
-        end
-        return nil
-    end
-    
-    -- Buscar y modificar el evento de daño
-    local function hookDamageEvent()
-        -- Buscar cualquier RemoteEvent o BindableEvent relacionado con daño
-        for _, descendant in ipairs(generator:GetDescendants()) do
-            if descendant:IsA("RemoteEvent") or descendant:IsA("BindableEvent") then
-                if descendant.Name:lower():find("damage") or 
-                   descendant.Name:lower():find("kick") or
-                   descendant.Name:lower():find("hit") then
+            -- Función para forzar generador a 0%
+            local function forceGeneratorToZero(generator)
+                if not generator or not generator.Parent then return end
+                
+                -- Método 1: Forzar atributos a 0
+                pcall(function()
+                    generator:SetAttribute("Progress", 0)
+                    generator:SetAttribute("progress", 0)
+                    generator:SetAttribute("CurrentProgress", 0)
+                    generator:SetAttribute("Repaired", false)
+                    generator:SetAttribute("Broken", true)
+                    generator:SetAttribute("Damage", 100)
                     
-                    local oldFireServer = descendant.FireServer
-                    descendant.FireServer = function(self, ...)
-                        local args = {...}
-                        -- Verificar si es el killer pateando
-                        if fullBreakEnabled and #args > 0 then
-                            -- Buscar y reiniciar el progreso a 0%
-                            local progressScript = findProgressScript(generator)
-                            if progressScript then
-                                -- Intentar acceder a la variable de progreso
+                    -- También en scripts
+                    for _, script in ipairs(generator:GetDescendants()) do
+                        if script:IsA("Script") or script:IsA("ModuleScript") then
+                            local env = getfenv(script)
+                            if env.progress then
+                                env.progress = 0
+                            end
+                            if env.Progress then
+                                env.Progress = 0
+                            end
+                            if env.currentProgress then
+                                env.currentProgress = 0
+                            end
+                        end
+                    end
+                end)
+                
+                -- Método 2: Enviar múltiples eventos de daño
+                task.spawn(function()
+                    for i = 1, 3 do  -- Enviar 3 veces para asegurar
+                        for remote, originalFire in pairs(generatorRemotes) do
+                            pcall(function()
+                                -- Enviar con argumentos de daño máximo
+                                remote:FireServer(generator, "Damage", 100)
+                                remote:FireServer(generator, "Break", true)
+                                remote:FireServer(generator, "Reset", 0)
+                            end)
+                        end
+                        task.wait(0.05)  -- Pequeño delay entre envíos
+                    end
+                end)
+                
+                -- Método 3: Simular efecto visual/sonoro de rotura
+                task.spawn(function()
+                    -- Activar efectos de humo/chispas si existen
+                    for _, effect in ipairs(generator:GetDescendants()) do
+                        if effect:IsA("ParticleEmitter") then
+                            if effect.Name:lower():find("smoke") or effect.Name:lower():find("spark") then
+                                effect.Enabled = true
+                            end
+                        end
+                    end
+                    
+                    -- Cambiar color a roto
+                    for _, part in ipairs(generator:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.BrickColor = BrickColor.new("Really red")
+                            part.Material = Enum.Material.CrackedLava
+                        end
+                    end
+                end)
+            end
+            
+            -- Interceptar cuando el killer patea un generador
+            local function setupGeneratorKickInterception()
+                local killerChar = LP.Character
+                if not killerChar then return end
+                
+                -- Buscar herramientas de pateo/ataque
+                for _, tool in ipairs(killerChar:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        for _, script in ipairs(tool:GetDescendants()) do
+                            if script:IsA("LocalScript") then
                                 pcall(function()
-                                    -- Diferentes formas de buscar el progreso
-                                    for _, scriptPart in ipairs(progressScript:GetDescendants()) do
-                                        if scriptPart:IsA("ModuleScript") then
-                                            local module = require(scriptPart)
-                                            if module and module.progress then
-                                                module.progress = 0
-                                            end
-                                        end
-                                    end
+                                    local env = getfenv(script)
                                     
-                                    -- También buscar variables directamente
-                                    local src = progressScript.Source
-                                    if src:find("progress") or src:find("Progreso") then
-                                        -- Intentar encontrar y resetear el valor
-                                        local progressValue = getfenv(progressScript).progress or 
-                                                               getfenv(progressScript).Progreso or
-                                                               getfenv(progressScript).repairProgress
-                                        if progressValue and type(progressValue) == "number" then
-                                            if getfenv(progressScript).progress then
-                                                getfenv(progressScript).progress = 0
-                                            elseif getfenv(progressScript).Progreso then
-                                                getfenv(progressScript).Progreso = 0
-                                            elseif getfenv(progressScript).repairProgress then
-                                                getfenv(progressScript).repairProgress = 0
+                                    -- Interceptar función de ataque
+                                    if env.onHit then
+                                        local originalOnHit = env.onHit
+                                        env.onHit = function(target, ...)
+                                            local result = originalOnHit(target, ...)
+                                            
+                                            if fullBreakEnabled and target and target:IsA("Model") then
+                                                local nameLower = target.Name:lower()
+                                                if nameLower:find("generator") or nameLower:find("gen_") then
+                                                    -- Forzar a 0% después del golpe
+                                                    task.wait(0.1)  -- Pequeño delay
+                                                    forceGeneratorToZero(target)
+                                                end
                                             end
+                                            
+                                            return result
                                         end
                                     end
                                 end)
                             end
                         end
-                        return oldFireServer(self, ...)
                     end
                 end
             end
-        end
-    end
-    
-    -- También monitorear el progreso directamente
-    local progressScript = findProgressScript(generator)
-    if progressScript then
-        local meta = getrawmetatable(progressScript)
-        if meta and meta.__index then
-            local oldIndex = meta.__index
-            setreadonly(meta, false)
-            meta.__index = newcclosure(function(self, key)
-                local result = oldIndex(self, key)
-                if fullBreakEnabled and (key == "progress" or key == "Progreso" or key == "repairProgress" or key == "repairprogress") then
-                    -- Siempre devolver 0 si el killer pateó recientemente
-                    return 0
+            
+            -- También interceptar eventos de daño directamente
+            for remote, originalFire in pairs(generatorRemotes) do
+                remote.FireServer = newcclosure(function(self, ...)
+                    local args = {...}
+                    
+                    if fullBreakEnabled and #args >= 1 then
+                        local target = args[1]
+                        if typeof(target) == "Instance" and target:IsA("Model") then
+                            local nameLower = target.Name:lower()
+                            if nameLower:find("generator") or nameLower:find("gen_") then
+                                -- Verificar si es el killer quien patea
+                                local playerChar = LP.Character
+                                if playerChar then
+                                    -- Forzar daño máximo
+                                    local modifiedArgs = {}
+                                    for i, arg in ipairs(args) do
+                                        if i == 2 and type(arg) == "string" and arg:lower():find("damage") then
+                                            modifiedArgs[i] = "FullBreak"
+                                        elseif i == 3 and type(arg) == "number" then
+                                            modifiedArgs[i] = 100  -- Daño máximo
+                                        else
+                                            modifiedArgs[i] = arg
+                                        end
+                                    end
+                                    
+                                    -- Enviar el evento modificado
+                                    local result = originalFire(self, unpack(modifiedArgs))
+                                    
+                                    -- Luego forzar a 0%
+                                    task.spawn(function()
+                                        task.wait(0.2)
+                                        forceGeneratorToZero(target)
+                                    end)
+                                    
+                                    return result
+                                end
+                            end
+                        end
+                    end
+                    
+                    return originalFire(self, ...)
+                end)
+            end
+            
+            -- Configurar intercepción inicial
+            setupGeneratorKickInterception()
+            
+            -- Reconectar cuando el personaje cambie
+            LP.CharacterAdded:Connect(function()
+                task.wait(1)
+                if fullBreakEnabled then
+                    setupGeneratorKickInterception()
                 end
-                return result
             end)
-            setreadonly(meta, true)
+            else
         end
     end
-    
-    hookDamageEvent()
-end
+})
 
 -- ============================================
 -- PESTAÑA GRAPHICS
@@ -2334,7 +2458,7 @@ end
 Players.PlayerAdded:Connect(function(p)
     if p ~= LP then
         watchPlayer(p)
-        task.wait(0.5)
+        task.wait(1)
         if playerESPEnabled or nametagsEnabled then
             applyOnePlayerESP(p)
         end
@@ -2347,7 +2471,7 @@ end)
 
 -- Conexión de personaje
 LP.CharacterAdded:Connect(function(char)
-    task.wait(0.2)
+    task.wait(1)
     applySpeedBoost()
     if genBoostEnabled then
         applyGeneratorBoost()
@@ -2360,7 +2484,7 @@ task.spawn(function()
     Rayfield:LoadConfiguration()
     Rayfield:Notify({
         Title = "LoreOnTop",
-        Content = "Script cargado y optimizado",
+        Content = "Script cargado",
         Duration = 5,
         Image = "rbxassetid://4483345998"
     })
