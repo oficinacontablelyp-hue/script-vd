@@ -465,6 +465,7 @@ end
 local generatorESPEnabled = false
 local generatorLoopConn = nil
 local generatorCache = {}
+local lastGeneratorUpdate = 0
 
 local function ensureGeneratorHighlight(model, color)
     if not (model and model:IsA("Model") and alive(model)) then return nil end
@@ -561,34 +562,58 @@ end
 local function updateGeneratorESP()
     if not generatorESPEnabled then return end
     
-    -- OPTIMIZACIÓN: Solo actualizar cada 1 segundo en lugar de cada frame
+    -- Control de tiempo: solo actualizar cada 1.5 segundos
     local now = tick()
-    if now - (generatorCache.lastUpdate or 0) < 1 then return end
-    generatorCache.lastUpdate = now
+    if now - lastGeneratorUpdate < 1.5 then return end
+    lastGeneratorUpdate = now
     
-    -- Buscar generadores solo una vez
-    local generators = {}
-    local foundCount = 0
-    local maxGenerators = 20  -- Límite para evitar lag
+    -- Buscar generadores de forma optimizada
+    local foundGenerators = {}
+    local generatorCount = 0
     
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if foundCount >= maxGenerators then break end
-        
-        if obj:IsA("Model") and obj.Name:lower():find("generator") then
-            local basePart = firstBasePart(obj)
-            if basePart then
-                generators[obj] = {
-                    model = obj,
-                    part = basePart
-                }
-                foundCount = foundCount + 1
+    -- Buscar solo en lugares específicos para optimizar
+    local searchFolders = {
+        Workspace:FindFirstChild("Map"),
+        Workspace:FindFirstChild("Map1"),
+        Workspace:FindFirstChild("Generators")
+    }
+    
+    for _, folder in ipairs(searchFolders) do
+        if folder then
+            for _, obj in ipairs(folder:GetDescendants()) do
+                if generatorCount >= 15 then break end  -- Límite para evitar lag
+                
+                if obj:IsA("Model") and (obj.Name:lower():find("generator") or 
+                   obj:GetAttribute("IsGenerator") == true) then
+                    
+                    local basePart = firstBasePart(obj)
+                    if basePart then
+                        foundGenerators[obj] = basePart
+                        generatorCount = generatorCount + 1
+                    end
+                end
             end
         end
     end
     
-    -- Limpiar generadores antiguos
+    -- También buscar en Workspace directamente (como fallback)
+    if generatorCount == 0 then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if generatorCount >= 10 then break end
+            
+            if obj:IsA("Model") and obj.Name:lower():find("generator") then
+                local basePart = firstBasePart(obj)
+                if basePart then
+                    foundGenerators[obj] = basePart
+                    generatorCount = generatorCount + 1
+                end
+            end
+        end
+    end
+    
+    -- Limpiar generadores que ya no existen
     for model, data in pairs(generatorCache) do
-        if model ~= "lastUpdate" and not generators[model] then
+        if not alive(model) or not foundGenerators[model] then
             clearGeneratorHighlight(model)
             if data.part and data.part:FindFirstChild("Generator_Tag") then
                 data.part.Generator_Tag:Destroy()
@@ -597,67 +622,76 @@ local function updateGeneratorESP()
         end
     end
     
-    -- Actualizar solo los generadores encontrados
-    for model, genData in pairs(generators) do
-        if not generatorCache[model] or now - (generatorCache[model].lastUpdate or 0) > 2 then
-            
+    -- Procesar generadores encontrados
+    for model, basePart in pairs(foundGenerators) do
+        local cacheData = generatorCache[model]
+        local shouldUpdate = true
+        
+        if cacheData then
+            -- Solo actualizar si pasaron más de 2 segundos
+            shouldUpdate = (now - (cacheData.lastUpdate or 0)) > 2
+        end
+        
+        if shouldUpdate then
             local progress = getGeneratorProgress(model)
             local color = generatorColor
             
+            -- Color basado en progreso
             if progress >= 100 then
                 color = Color3.fromRGB(0, 255, 0)
-            elseif progress >= 50 then
+            elseif progress >= 70 then
+                color = Color3.fromRGB(100, 255, 100)
+            elseif progress >= 40 then
                 color = Color3.fromRGB(255, 255, 0)
             else
                 color = Color3.fromRGB(255, 50, 50)
             end
             
-            -- Solo crear highlight si no existe
+            -- Crear o actualizar highlight
             local hl = ensureGeneratorHighlight(model, color)
             if hl then
-                hl.FillTransparency = 0.8  -- Más transparente para menos lag
-                hl.OutlineTransparency = 0.5
+                hl.Enabled = true
+                hl.FillTransparency = 0.85  -- Más transparente para menos lag
+                hl.OutlineTransparency = 0.6
             end
             
-            local part = genData.part
-            if part then
-                local existingTag = part:FindFirstChild("Generator_Tag")
-                if not existingTag then
-                    -- Crear billboard optimizado
-                    local bb = Instance.new("BillboardGui")
-                    bb.Name = "Generator_Tag"
-                    bb.AlwaysOnTop = true
-                    bb.Size = UDim2.new(0, 100, 0, 30)  -- Más pequeño
-                    bb.StudsOffset = Vector3.new(0, 4, 0)
-                    bb.Enabled = true
-                    bb.Parent = part
-                    
-                    local label = Instance.new("TextLabel")
-                    label.Name = "Label"
-                    label.BackgroundTransparency = 1
-                    label.Size = UDim2.new(1, 0, 1, 0)
-                    label.Font = Enum.Font.GothamMedium  -- Fuente más ligera
-                    label.Text = string.format("Gen: %.0f%%", progress)
-                    label.TextSize = 12  -- Texto más pequeño
+            -- Crear o actualizar tag
+            local existingTag = basePart:FindFirstChild("Generator_Tag")
+            if not existingTag then
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "Generator_Tag"
+                bb.AlwaysOnTop = true
+                bb.Size = UDim2.new(0, 120, 0, 25)  -- Más pequeño
+                bb.StudsOffset = Vector3.new(0, 4, 0)
+                bb.Enabled = true
+                bb.Parent = basePart
+                
+                local label = Instance.new("TextLabel")
+                label.Name = "Label"
+                label.BackgroundTransparency = 1
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.Font = Enum.Font.GothamMedium
+                label.Text = string.format("%.0f%%", progress)
+                label.TextSize = 11
+                label.TextColor3 = color
+                label.TextStrokeTransparency = 0.6
+                label.TextStrokeColor3 = Color3.new(0, 0, 0)
+                label.Parent = bb
+                
+                table.insert(espObjects, bb)
+            else
+                -- Solo actualizar texto si existe
+                local label = existingTag:FindFirstChild("Label")
+                if label then
+                    label.Text = string.format("%.0f%%", progress)
                     label.TextColor3 = color
-                    label.TextStrokeTransparency = 0.5
-                    label.TextStrokeColor3 = Color3.new(0, 0, 0)
-                    label.Parent = bb
-                    
-                    espObjects[bb] = true
-                else
-                    -- Solo actualizar texto
-                    local label = existingTag:FindFirstChild("Label")
-                    if label then
-                        label.Text = string.format("Gen: %.0f%%", progress)
-                        label.TextColor3 = color
-                    end
                 end
             end
             
+            -- Actualizar cache
             generatorCache[model] = {
                 model = model,
-                part = genData.part,
+                part = basePart,
                 lastUpdate = now
             }
         end
