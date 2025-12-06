@@ -525,40 +525,6 @@ local function getGeneratorProgress(model)
     return math.clamp(progress, 0, 100)
 end
 
-local function findGenerators()
-    local generators = {}
-    
-    local searchLocations = {
-        Workspace,
-        Workspace:FindFirstChild("Map"),
-        Workspace:FindFirstChild("Map1"),
-        Workspace:FindFirstChild("Generators"),
-        Workspace:FindFirstChild("Props")
-    }
-    
-    for _, location in ipairs(searchLocations) do
-        if location then
-            for _, obj in ipairs(location:GetDescendants()) do
-                if obj:IsA("Model") and (obj.Name:lower():find("generator") or 
-                   obj.Name:lower():find("gen") or 
-                   obj:GetAttribute("IsGenerator") == true) then
-                    
-                    local basePart = firstBasePart(obj)
-                    if basePart then
-                        generators[obj] = {
-                            model = obj,
-                            part = basePart,
-                            lastCheck = tick()
-                        }
-                    end
-                end
-            end
-        end
-    end
-    
-    return generators
-end
-
 local function updateGeneratorESP()
     if not generatorESPEnabled then return end
     
@@ -694,6 +660,48 @@ local function updateGeneratorESP()
                 part = basePart,
                 lastUpdate = now
             }
+        end
+    end
+end
+
+local function startGeneratorESPLoop()
+    if generatorLoopConn then return end
+    
+    generatorLoopConn = RunService.Heartbeat:Connect(function()
+        updateGeneratorESP()
+    end)
+end
+
+local function stopGeneratorESPLoop()
+    -- Detener el loop
+    if generatorLoopConn then
+        generatorLoopConn:Disconnect()
+        generatorLoopConn = nil
+    end
+    
+    -- Limpiar todos los generadores en cache
+    for model, data in pairs(generatorCache) do
+        if data and data.model then
+            -- Limpiar highlight
+            clearGeneratorHighlight(data.model)
+            
+            -- Limpiar tag
+            if data.part and data.part:FindFirstChild("Generator_Tag") then
+                data.part.Generator_Tag:Destroy()
+            end
+        end
+    end
+    
+    -- Resetear variables
+    generatorCache = {}
+    lastGeneratorUpdate = 0
+    
+    -- También limpiar de la tabla espObjects
+    for i = #espObjects, 1, -1 do
+        local obj = espObjects[i]
+        if obj and obj.Name == "Generator_Tag" then
+            pcall(function() obj:Destroy() end)
+            table.remove(espObjects, i)
         end
     end
 end
@@ -1748,8 +1756,6 @@ MiscTab:CreateButton({
         stopGeneratorBoostWatcher()
         stopPerfectSkillCheck()
         stopNoSkillCheck()
-        stopNoFogLoop()
-        stopNoShadowsLoop()
         
         Rayfield:Notify({
             Title = "Limpieza Completada",
@@ -1816,10 +1822,4 @@ task.spawn(function()
         Duration = 5,
         Image = "rbxassetid://4483345998"
     })
-end)
-
--- Conectar cleanup
-game:GetService("UserInputService").WindowFocusReleased:Connect(function()
-    stopESPLoop()
-    stopGeneratorESPLoop()
 end)
