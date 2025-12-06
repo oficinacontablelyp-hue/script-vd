@@ -1030,11 +1030,11 @@ local originalShadows = true
 local function applySimpleLowGraphics()
     if not lowGraphicsEnabled then return end
     
-    -- SOLO DESACTIVAR SOMBRAS (lo más importante)
+    -- SOLO DESACTIVAR SOMBRAS
     pcall(function()
         Lighting.GlobalShadows = false
         
-        -- Desactivar sombras en partes (opcional, comentar si causa lag)
+        -- Desactivar sombras en partes
         for _, part in ipairs(Workspace:GetDescendants()) do
             if part:IsA("BasePart") then
                 part.CastShadow = false
@@ -1238,95 +1238,6 @@ SurvivorTab:CreateSlider({
         if genBoostEnabled then
             applyGeneratorBoost()
         end
-    end
-})
-
--- Sección Generator Boost (MEJORADO)
-SurvivorTab:CreateSection("Generator Boost (Avance Rápido)")
-
-local genBoostEnabled = false
-local genBoostMultiplier = 5.0  -- Por defecto 5x
-local genBoostConnection = nil
-
-local function applyDirectGeneratorBoost()
-    if not genBoostEnabled or not LP.Character then return end
-    
-    -- Buscar generadores cercanos
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and (obj.Name:lower():find("generator") or 
-           obj:GetAttribute("IsGenerator") == true) then
-            
-            -- Verificar si el jugador está cerca/interactuando
-            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-            local genPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-            
-            if hrp and genPart and (hrp.Position - genPart.Position).Magnitude < 10 then
-                -- Aumentar progreso DIRECTAMENTE
-                pcall(function()
-                    local currentProgress = obj:GetAttribute("RepairProgress") or 0
-                    local currentProgressBar = obj:GetAttribute("ProgressBar") or 0
-                    
-                    -- Aumentar progreso según el multiplicador
-                    local increment = 0.01 * genBoostMultiplier  -- 1% por segundo base * multiplicador
-                    
-                    obj:SetAttribute("RepairProgress", math.min(1, currentProgress + increment))
-                    obj:SetAttribute("ProgressBar", math.min(1, currentProgressBar + increment))
-                    obj:SetAttribute("CurrentProgress", math.min(1, currentProgress + increment))
-                    
-                    -- También modificar valores NumberValue si existen
-                    local progressValue = obj:FindFirstChild("Progress")
-                    if progressValue and progressValue:IsA("NumberValue") then
-                        progressValue.Value = math.min(1, progressValue.Value + increment)
-                    end
-                    
-                    local repairValue = obj:FindFirstChild("RepairProgress")
-                    if repairValue and repairValue:IsA("NumberValue") then
-                        repairValue.Value = math.min(1, repairValue.Value + increment)
-                    end
-                end)
-            end
-        end
-    end
-end
-
-SurvivorTab:CreateToggle({
-    Name = "Generator Boost (Avance Rápido)",
-    CurrentValue = false,
-    Flag = "GenBoostToggle",
-    Callback = function(state)
-        genBoostEnabled = state
-        if state then
-            genBoostConnection = RunService.Heartbeat:Connect(function()
-                applyDirectGeneratorBoost()
-            end)
-            Rayfield:Notify({
-                Title = "Generator Boost Activado",
-                Content = string.format("Reparación: %.0fx más rápido", genBoostMultiplier),
-                Duration = 3
-            })
-        else
-            if genBoostConnection then
-                genBoostConnection:Disconnect()
-                genBoostConnection = nil
-            end
-        end
-    end
-})
-
-SurvivorTab:CreateSlider({
-    Name = "Velocidad de Reparación",
-    Range = {1.0, 50.0},  -- Hasta 50x más rápido
-    Increment = 1.0,
-    Suffix = "x",
-    CurrentValue = genBoostMultiplier,
-    Flag = "GenBoostValue",
-    Callback = function(value)
-        genBoostMultiplier = value
-        Rayfield:Notify({
-            Title = "Velocidad Ajustada",
-            Content = string.format("Reparación: %.0fx más rápido", genBoostMultiplier),
-            Duration = 2
-        })
     end
 })
 
